@@ -1,0 +1,52 @@
+name:                stun
+version:             0.1.0.0
+synopsis:            Session Traversal Utilities for NAT (STUN) protocol
+description:         Please see README.md
+homepage:            https://github.com/oherrala/haskell-stun#readme
+license:             MIT
+license-file:        LICENSE
+author:              Ossi Herrala
+maintainer:          oherrala@gmail.com
+copyright:           2016 Ossi Herrala
+category:            Protocol, Network
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     Network.STUN.RFC5389
+                     , Network.STUN.RFC5769
+  default-language:    Haskell2010
+  ghc-options:         -Wall
+  build-depends:       base >= 4.7 && < 5
+                     , bytestring
+                     , cereal
+                     , largeword
+                     , network
+                     , text
+
+test-suite hlint
+  hs-source-dirs:      test
+  main-is:             HLint.hs
+  default-language:    Haskell2010
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  type:                exitcode-stdio-1.0
+  build-depends:       base
+                     , hlint
+
+test-suite test
+  hs-source-dirs:      test
+  main-is:             test.hs
+  default-language:    Haskell2010
+  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  type:                exitcode-stdio-1.0
+  build-depends:       base
+                     , bytestring
+                     , cereal
+                     , largeword
+                     , network
+                     , tasty
+                     , tasty-hunit
+                     , tasty-quickcheck
+                     , text
+                     , stun
