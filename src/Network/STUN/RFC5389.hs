@@ -18,6 +18,7 @@ module Network.STUN.RFC5389
        (
          -- * Types
          STUNAttribute(..)
+       , STUNAttributes
        , STUNMessage(..)
        , STUNType(..)
 

@@ -26,6 +26,7 @@ library
                      , largeword
                      , network
                      , text
+                     , cryptonite
 
 test-suite hlint
   hs-source-dirs:      test

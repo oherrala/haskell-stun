@@ -5,16 +5,21 @@ module Main where
 import           Test.Tasty
 import           Test.Tasty.HUnit
 
+import qualified Data.ByteString      as ByteString
+import           Data.Either          (isLeft)
 import           Data.LargeWord       (LargeKey (..))
 
 import           Network.STUN.RFC5389
 import qualified Network.STUN.RFC5769 as RFC5769
 
+
 main :: IO ()
 main = defaultMain tests
 
+
 tests :: TestTree
-tests = testGroup "Tests" [rfc5769Tests]
+tests = testGroup "Tests" [rfc5769Tests, negativeTests]
+
 
 rfc5769Tests :: TestTree
 rfc5769Tests = testGroup "RFC5769 Test Vectors"
@@ -49,4 +54,32 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc8fb0b4c) attrs
        ]
+  ]
+
+
+negativeTests :: TestTree
+negativeTests = testGroup "Negative Tests"
+  [ testCase "Empty bytestring" $
+    let response = parseSTUNMessage ByteString.empty
+    in assertBool "" $ isLeft response
+
+  , testCase "One null byte" $
+    let response = parseSTUNMessage "\0"
+    in assertBool "" $ isLeft response
+
+  , testCase "Incomplete STUN Binding Request (first 17 bytes)" $
+    let response = parseSTUNMessage $ ByteString.take 17 RFC5769.sampleRequest
+    in assertBool "" $ isLeft response
+
+  , testCase "Incomplete STUN Binding Request (lost first 17 bytes)" $
+    let response = parseSTUNMessage $ ByteString.drop 17 RFC5769.sampleRequest
+    in assertBool "" $ isLeft response
+
+  , testCase "Incomplete STUN Binding Response (first 13 bytes)" $
+    let response = parseSTUNMessage $ ByteString.take 13 RFC5769.sampleIPv4Response
+    in assertBool "" $ isLeft response
+
+  , testCase "Incomplete STUN Binding Response (lost first 13 bytes)" $
+    let response = parseSTUNMessage $ ByteString.drop 13 RFC5769.sampleIPv4Response
+    in assertBool "" $ isLeft response
   ]
