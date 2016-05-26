@@ -47,7 +47,7 @@ bindingRequest sock = do
   return $! recvBindingRequest sock transId
 
 
--- | Rend STUN Binding Request
+-- | Send STUN Binding Request
 -- Returns Transaction ID
 sendBindingRequest :: Socket.Socket -> STUNAttributes -> IO Word96
 sendBindingRequest sock attrs = do
