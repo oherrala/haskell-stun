@@ -29,9 +29,9 @@ module Network.STUN.RFC5389
        , produceSTUNMessage
        ) where
 
-import           Control.Monad      (unless)
+import           Control.Monad      (unless, when)
 
-import           Data.Bits          (xor)
+import           Data.Bits          (xor, testBit)
 
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
@@ -108,10 +108,24 @@ produceSTUNMessage = runPut . putSTUNMessage
 -- | Get one STUN Message
 getSTUNMessage :: Get STUNMessage
 getSTUNMessage = do
-  msgType    <- toStunType <$> getWord16be
-  msgLen     <- fromIntegral <$> getWord16be
+  -- RFC5389 section 6: The most significant 2 bits of every STUN
+  -- message MUST be zeroes.
+  type' <- getWord16be
+  when (testBit type' 15 || testBit type' 14) $ fail "Not STUN Message"
+  let msgType = toStunType type'
+
+  -- RFC5389 section 6: The message length MUST contain the size, in
+  -- bytes, of the message not including the 20-byte STUN header.
+  -- Since all STUN attributes are padded to a multiple of 4 bytes,
+  -- the last 2 bits of this field are always zero.
+  msgLen <- fromIntegral <$> getWord16be
+  unless (msgLen `mod` 4 == 0) $ fail "Length not multiple of 4"
+
+  -- RFC5389 section 6: The magic cookie field MUST contain the fixed
+  -- value 0x2112A442 in network byte order.
   msgCookie  <- getWord32be
   unless (msgCookie == 0x2112A442) $ fail "Magic cookie 0x2112A442 not found"
+
   msgTransId <- getWord96be
   msgAttrs   <- isolate msgLen (getSTUNAttributes msgTransId)
   return $! STUNMessage msgType msgTransId msgAttrs
