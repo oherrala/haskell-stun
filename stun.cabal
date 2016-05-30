@@ -3,6 +3,7 @@ version:             0.1.0.0
 synopsis:            Session Traversal Utilities for NAT (STUN) protocol
 description:         Please see README.md
 homepage:            https://github.com/oherrala/haskell-stun#readme
+bug-reports:         https://github.com/oherrala/haskell-stun/issues
 license:             MIT
 license-file:        LICENSE
 author:              Ossi Herrala
@@ -11,6 +12,7 @@ copyright:           2016 Ossi Herrala
 category:            Protocol, Network
 build-type:          Simple
 cabal-version:       >=1.10
+tested-with:         GHC == 7.10.3, GHC == 8.0.1, GHC == 8.0.2
 
 source-repository head
   type:              git
