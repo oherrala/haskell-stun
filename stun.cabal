@@ -12,6 +12,10 @@ category:            Protocol, Network
 build-type:          Simple
 cabal-version:       >=1.10
 
+source-repository head
+  type:              git
+  location:          https://github.com/oherrala/haskell-stun
+
 library
   hs-source-dirs:      src
   exposed-modules:     Network.STUN.RFC5389
