@@ -14,6 +14,10 @@ build-type:          Simple
 cabal-version:       >=1.10
 tested-with:         GHC == 7.10.3, GHC == 8.0.1, GHC == 8.0.2
 
+source-repository head
+  type:              git
+  location:          https://github.com/oherrala/haskell-stun
+
 library
   hs-source-dirs:      src
   exposed-modules:     Network.STUN.RFC5389
@@ -21,12 +25,12 @@ library
   default-language:    Haskell2010
   ghc-options:         -Wall
   build-depends:       base >= 4.7 && < 5
-                     , bytestring
-                     , cereal
-                     , largeword
-                     , network
-                     , text
-                     , cryptonite
+                     , bytestring >= 0.10
+                     , cereal >= 0.5
+                     , largeword >= 1.2
+                     , network >= 2.6
+                     , text >= 1.2
+                     , cryptonite >= 0.10
 
 test-suite hlint
   hs-source-dirs:      test
@@ -34,8 +38,8 @@ test-suite hlint
   default-language:    Haskell2010
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   type:                exitcode-stdio-1.0
-  build-depends:       base
-                     , hlint
+  build-depends:       base >= 4.7 && < 5
+                     , hlint >= 1.9
 
 test-suite test
   hs-source-dirs:      test
@@ -43,13 +47,15 @@ test-suite test
   default-language:    Haskell2010
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   type:                exitcode-stdio-1.0
-  build-depends:       base
-                     , bytestring
-                     , cereal
-                     , largeword
-                     , network
-                     , tasty
-                     , tasty-hunit
-                     , tasty-quickcheck
-                     , text
+  build-depends:       base >= 4.7 && < 5
+                       -- stun build deps
+                     , bytestring >= 0.10
+                     , cereal >= 0.5
+                     , largeword >= 1.2
+                     , network >= 2.6
+                     , text >= 1.2
+                       -- testing deps
+                     , tasty >= 0.11
+                     , tasty-hunit >= 0.9
+                     , tasty-quickcheck >= 0.8
                      , stun
