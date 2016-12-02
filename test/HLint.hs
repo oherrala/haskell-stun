@@ -1,7 +1,9 @@
-module Main where
-
-import           Control.Monad           (void)
 import           Language.Haskell.HLint3
+import           System.Exit
 
 main :: IO ()
-main = void $ hlint ["src", "test"]
+main = do
+  ideas <- hlint ["app", "src", "test"]
+  if null ideas
+    then exitSuccess
+    else exitFailure

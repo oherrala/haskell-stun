@@ -4,22 +4,24 @@ module Main where
 
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.SmallCheck
 
-import qualified Data.ByteString      as ByteString
-import           Data.Either          (isLeft)
-import           Data.LargeWord       (LargeKey (..))
+import Data.Serialize (runGet, runPut)
+import qualified Data.ByteString       as ByteString
+import           Data.Either           (isLeft)
+import           Data.LargeWord        (LargeKey (..))
 
 import           Network.STUN.RFC5389
 
 import qualified RFC5769
-
+import SmallCheck()
 
 main :: IO ()
 main = defaultMain tests
 
 
 tests :: TestTree
-tests = testGroup "Tests" [rfc5769Tests, negativeTests]
+tests = testGroup "Tests" [rfc5769Tests, negativeTests, scProps]
 
 
 rfc5769Tests :: TestTree
@@ -92,4 +94,12 @@ negativeTests = testGroup "Negative Tests"
   , testCase "Incomplete STUN Binding Response (lost first 13 bytes)" $
     let response = parseSTUNMessage $ ByteString.drop 13 RFC5769.sampleIPv4Response
     in assertBool "" $ isLeft response
+  ]
+
+
+scProps :: TestTree
+scProps = testGroup "SmallCheck properties"
+  [ testProperty "STUNMessage == parseSTUNMessage . produceSTUNMessage" $
+    \msg -> let (Right msg') = parseSTUNMessage . produceSTUNMessage $ msg
+            in msg' == msg
   ]
