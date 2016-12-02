@@ -10,7 +10,8 @@ import           Data.Either          (isLeft)
 import           Data.LargeWord       (LargeKey (..))
 
 import           Network.STUN.RFC5389
-import qualified Network.STUN.RFC5769 as RFC5769
+
+import qualified RFC5769
 
 
 main :: IO ()
@@ -45,7 +46,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc07d4c96) attrs
        ]
 
-  , testCase "2.2. Sample IPv6 Response" $
+  , testCase "2.3. Sample IPv6 Response" $
     let (Right stunMessage) = parseSTUNMessage RFC5769.sampleIPv6Response
         (STUNMessage stunType transID attrs) = stunMessage
     in sequence_
@@ -53,6 +54,15 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        , transID @=? LargeKey 0xb7e7a701 0xbc34d686fa87dfae
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc8fb0b4c) attrs
+       ]
+
+  , testCase "2.4. Sample Request with Long-Term Authentication" $
+    let (Right stunMessage) = parseSTUNMessage RFC5769.sampleReqWithLongTermAuth
+        (STUNMessage stunType transID attrs) = stunMessage
+    in sequence_
+       [ stunType @=? BindingRequest
+       , transID @=? LargeKey 0x78ad3433 0xc6ad72c029da412e
+       , assertBool "Realm attribute" $ elem (Realm "example.org") attrs
        ]
   ]
 

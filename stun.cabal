@@ -20,17 +20,17 @@ source-repository head
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Network.STUN.RFC5389
-                     , Network.STUN.RFC5769
+  exposed-modules:     Network.STUN
+                     , Network.STUN.RFC5389
   default-language:    Haskell2010
   ghc-options:         -Wall
-  build-depends:       base >= 4.7 && < 5
-                     , bytestring >= 0.10
-                     , cereal >= 0.5
-                     , largeword >= 1.2
-                     , network >= 2.6
-                     , text >= 1.2
-                     , cryptonite >= 0.10
+  build-depends:       base
+                     , bytestring
+                     , cereal
+                     , largeword
+                     , network
+                     , text
+                     , cryptonite
 
 test-suite hlint
   hs-source-dirs:      test
@@ -38,24 +38,21 @@ test-suite hlint
   default-language:    Haskell2010
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   type:                exitcode-stdio-1.0
-  build-depends:       base >= 4.7 && < 5
-                     , hlint >= 1.9
+  build-depends:       base
+                     , hlint
 
 test-suite test
   hs-source-dirs:      test
   main-is:             test.hs
+  other-modules:       RFC5769
   default-language:    Haskell2010
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   type:                exitcode-stdio-1.0
-  build-depends:       base >= 4.7 && < 5
-                       -- stun build deps
-                     , bytestring >= 0.10
-                     , cereal >= 0.5
-                     , largeword >= 1.2
-                     , network >= 2.6
-                     , text >= 1.2
+  build-depends:       base
+                     , bytestring
+                     , largeword
                        -- testing deps
-                     , tasty >= 0.11
-                     , tasty-hunit >= 0.9
-                     , tasty-quickcheck >= 0.8
+                     , tasty
+                     , tasty-hunit
+                     , tasty-quickcheck
                      , stun
