@@ -16,8 +16,10 @@ as specified in RFC5389. https://tools.ietf.org/html/rfc5389
 
 module Network.STUN
   (
+    -- * Request STUN binding and return Binding response
+    bindingRequest
     -- * Send and receive STUN Binding Request/Response
-    sendBindingRequest
+  , sendBindingRequest
   , recvBindingRequest
   ) where
 
@@ -41,10 +43,10 @@ software = Software "Haskell STUN"
 -- STUN Binding Request/Response
 
 -- | Send STUN Binding Request, then wait and return Binding Response
-bindingRequest :: Socket.Socket -> IO StunMessage
+bindingRequest :: Socket.Socket -> IO STUNMessage
 bindingRequest sock = do
-  transId <- sendBindingRequest sock
-  return $! recvBindingRequest sock transId
+  transId <- sendBindingRequest sock []
+  recvBindingRequest sock transId
 
 
 -- | Send STUN Binding Request
@@ -62,18 +64,18 @@ sendBindingRequest sock attrs = do
 
 -- | Receive STUN Binding Response
 -- This function waits until correct Binding Response is received
-recvBindingRequest :: Word96 -> Socket.Socket -> IO STUNMessage
+recvBindingRequest :: Socket.Socket -> Word96 -> IO STUNMessage
 recvBindingRequest = recvLoop
   where
-    recvLoop transId sock = do
+    recvLoop sock transId = do
       packet <- Socket.recv sock 65536
       let response = parseSTUNMessage packet
       case response of
         Right result@(STUNMessage BindingResponse transId' _) ->
           if transId == transId'
           then return result
-          else recvLoop transId sock
-        _ -> recvLoop transId sock
+          else recvLoop sock transId
+        _ -> recvLoop sock transId
 
 
 ------------------------------------------------------------------------
