@@ -45,14 +45,18 @@ test-suite test
   hs-source-dirs:      test
   main-is:             test.hs
   other-modules:       RFC5769
+                     , SmallCheck
   default-language:    Haskell2010
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   type:                exitcode-stdio-1.0
   build-depends:       base
                      , bytestring
+                     , cereal
                      , largeword
+                     , text
                        -- testing deps
                      , tasty
                      , tasty-hunit
-                     , tasty-quickcheck
+                     , tasty-smallcheck
+                     , smallcheck
                      , stun

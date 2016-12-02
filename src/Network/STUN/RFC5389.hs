@@ -21,6 +21,7 @@ module Network.STUN.RFC5389
        , STUNAttributes
        , STUNMessage(..)
        , STUNType(..)
+       , TransactionID
 
          -- * STUN parser (ByteString -> STUNMessage)
        , parseSTUNMessage
@@ -29,9 +30,9 @@ module Network.STUN.RFC5389
        , produceSTUNMessage
        ) where
 
-import           Control.Monad      (unless, when)
+import           Control.Monad      (replicateM, unless, when)
 
-import           Data.Bits          (xor, testBit)
+import           Data.Bits          (setBit, shiftR, testBit, xor, (.&.))
 
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
@@ -41,12 +42,12 @@ import           Data.LargeWord
 import           Data.Serialize
 
 import           Data.Text          (Text)
-import qualified Data.Text          as Text
 import qualified Data.Text.Encoding as Text
 
 import           Data.Word          (Word16, Word32)
 
 import           Network.Socket     (HostAddress, HostAddress6)
+import qualified Network.Socket     as Socket
 
 
 ------------------------------------------------------------------------
@@ -69,8 +70,14 @@ type STUNAttributes = [STUNAttribute]
 
 data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ IPv4 (XOR-)MAPPED-ADDRESS Attribute
+                   | XORMappedAddressIPv4 HostAddress Word16
+                   -- ^ IPv4 XOR-MAPPED-ADDRESS Attribute
+                   | ChangeRequest Bool Bool
+                     -- ^ CHANGE-REQUEST Attribute
                    | MappedAddressIPv6 HostAddress6 Word16
                      -- ^ IPv6 (XOR-)MAPPED-ADDRESS Attribute
+                   | XORMappedAddressIPv6 HostAddress6 Word16 TransactionID
+                   -- ^ IPv6 XOR-MAPPED-ADDRESS Attribute
                    | Username Text
                      -- ^ USERNAME Attribute
                    | MessageIntegrity ByteString
@@ -85,9 +92,8 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ Unknown attribute
                    deriving (Show, Eq)
 
-
 ------------------------------------------------------------------------
--- Parse and produce STUN messages
+-- | Parse and produce STUN messages
 
 -- | Parse STUN message
 parseSTUNMessage :: ByteString -> Either String STUNMessage
@@ -176,6 +182,7 @@ getSTUNAttribute transId = do
 
   msgValue <- case msgType of
     0x0001 -> getMappedAddress                 -- RFC5389 15.1. MAPPED-ADDRESS
+    0x0003 -> getChangeRequest                 -- RFC5780 7.2.  CHANGE-REQUEST
     0x0020 -> getXORMappedAddress transId      -- RFC5389 15.2. XOR-MAPPED-ADDRESS
     -- FIXME: verify max length
     0x0006 -> Username <$> getUTF8 len         -- RFC5389 15.3. USERNAME
@@ -204,46 +211,91 @@ putSTUNAttributes :: STUNAttributes -> Put
 putSTUNAttributes = mapM_ putSTUNAttribute
 
 
+-- Helper for encoding STUN Attributes
+attrTLV :: Word16 -> Put -> Put
+attrTLV type' value = do
+  let payload = runPut value
+      length' = fromIntegral (ByteString.length payload)
+      padding = fromIntegral ((4 - (length' `mod` 4)) `mod` 4)
+      bytes = ByteString.pack (take padding [0x00, 0x00, 0x00, 0x00])
+  putWord16be type'
+  putWord16be length'
+  putByteString payload
+  when (padding > 0) $ putByteString bytes
+
 -- | Put STUN Attribute
 putSTUNAttribute :: STUNAttribute -> Put
 
 putSTUNAttribute (MappedAddressIPv4 addr port) = do
-  putWord16be 0x0001 -- type
-  putWord16be 64     -- length
-  putWord16be 0x0001 -- value - family
-  putWord16be port   --       - port
-  putWord32be addr   --       - IPv4 address
+  let (b1, b2, b3, b4) = Socket.hostAddressToTuple addr
+  attrTLV 0x0001 $ do
+    putWord16be 0x0001              -- family
+    putWord16be port                -- port
+    mapM_ putWord8 [b1, b2, b3, b4] -- IPv4 address
+
+putSTUNAttribute (XORMappedAddressIPv4 addr port) = do
+  -- See getXORMappedAddress function for how XOR encoding works
+  let (b1, b2, b3, b4) = Socket.hostAddressToTuple addr
+  let xPort = port `xor` 0x2112
+      x1 = b1 `xor` 0x21
+      x2 = b2 `xor` 0x12
+      x3 = b3 `xor` 0xA4
+      x4 = b4 `xor` 0x42
+  attrTLV 0x0020 $ do
+    putWord16be 0x0001              -- family
+    putWord16be xPort               -- port
+    mapM_ putWord8 [x1, x2, x3, x4] -- IPv4 address
 
 putSTUNAttribute (MappedAddressIPv6 addr port) = do
   let (addr1, addr2, addr3, addr4) = addr
-  putWord16be 0x0001 -- type
-  putWord16be 160    -- length
-  putWord16be 0x0002 -- value - family
-  putWord16be port   --       - port
-  putWord32be addr1  --       - IPv6 address
-  putWord32be addr2  --       - IPv6 address
-  putWord32be addr3  --       - IPv6 address
-  putWord32be addr4  --       - IPv6 address
+  attrTLV 0x0001 $ do
+    putWord16be 0x0002 -- family
+    putWord16be port   -- port
+    putWord32be addr1  -- IPv6 address
+    putWord32be addr2  -- IPv6 address
+    putWord32be addr3  -- IPv6 address
+    putWord32be addr4  -- IPv6 address
 
-putSTUNAttribute (Username text) = do
-  putWord16be 0x0006                              -- type
-  putWord16be . fromIntegral . Text.length $ text -- length
-  putByteString $ Text.encodeUtf8 text            -- value
+putSTUNAttribute (XORMappedAddressIPv6 addr port transId) = do
+  let (addr1, addr2, addr3, addr4) = addr
+      (LargeKey w2 w34) = transId
+      w1 = 0x2112A442
+      w3 = fromIntegral $ w34 `shiftR` 32
+      w4 = fromIntegral $ w34 .&. 0xFFFF0000
+  let xPort = port `xor` 0x2112
+      xAddr1 = addr1 `xor` w1
+      xAddr2 = addr2 `xor` w2
+      xAddr3 = addr3 `xor` w3
+      xAddr4 = addr4 `xor` w4
+  attrTLV 0x0020 $ do
+    putWord16be 0x0002 -- family
+    putWord16be xPort  -- port
+    putWord32be xAddr1 -- IPv6 address
+    putWord32be xAddr2 -- IPv6 address
+    putWord32be xAddr3 -- IPv6 address
+    putWord32be xAddr4 -- IPv6 address
+
+putSTUNAttribute (ChangeRequest changeIP changePort) =
+  attrTLV 0x0003 $ do
+  let flags = 0
+        + (if changeIP then 0 `setBit` 2 else 0)
+        + (if changePort then 0 `setBit` 3 else 0)
+  putWord32be flags
+
+putSTUNAttribute (Username text) =
+  attrTLV 0x0006 (putByteString . Text.encodeUtf8 $ text)
 
 putSTUNAttribute (MessageIntegrity _)         = undefined
-putSTUNAttribute (Fingerprint _)              = undefined
 
-putSTUNAttribute (Realm text) = do
-  putWord16be 0x0014                              -- type
-  putWord16be . fromIntegral . Text.length $ text -- length
-  putByteString $ Text.encodeUtf8 text            -- value
+putSTUNAttribute (Fingerprint fp) = attrTLV 0x8028 (putWord32be fp)
 
-putSTUNAttribute (Software text) = do
-  putWord16be 0x0022                              -- type
-  putWord16be . fromIntegral . Text.length $ text -- length
-  putByteString $ Text.encodeUtf8 text            -- value
+putSTUNAttribute (Realm text) =
+  attrTLV 0x0014 (putByteString . Text.encodeUtf8 $ text)
 
-putSTUNAttribute _ = fail "Unknown STUN Attribute"
+putSTUNAttribute (Software text) =
+  attrTLV 0x8022 (putByteString . Text.encodeUtf8 $ text)
+
+putSTUNAttribute attr = fail $ "Unknown STUN Attribute: " ++ show attr
 
 -- | Get STUN MAPPED-ADDRESS
 getMappedAddress :: Get STUNAttribute
@@ -253,7 +305,8 @@ getMappedAddress = do
   case family of
     -- IPv4
     0x0001 -> do
-      addr <- getWord32be
+      [b1, b2, b3, b4] <- replicateM 4 getWord8
+      let addr = Socket.tupleToHostAddress (b1, b2, b3, b4)
       return $! MappedAddressIPv4 addr port
     -- IPv6
     0x0002 -> do
@@ -308,6 +361,14 @@ getXORMappedAddress transId = do
       return $! MappedAddressIPv6 (addr1, addr2, addr3, addr4) port
     _ -> fail "Unknown type in MAPPED-ADDRESS attribute"
 
+-- | Get STUN CHANGE-REQUEST
+-- RFC5780 7.2 https://tools.ietf.org/html/rfc5780#section-7.2
+getChangeRequest :: Get STUNAttribute
+getChangeRequest = do
+  flags <- getWord32be
+  let changeIP   = testBit flags 2
+      changePort = testBit flags 3
+  return $! ChangeRequest changeIP changePort
 
 ------------------------------------------------------------------------
 -- Utilities to work with Data.Serialize.Get and Data.Serialize.Put
