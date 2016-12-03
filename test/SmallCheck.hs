@@ -13,7 +13,7 @@ import           Data.Text              (Text)
 import qualified Data.Text              as Text
 import           Data.Word
 
-import           Network.STUN.RFC5389
+import           Network.STUN.Internal
 
 
 instance Monad m => Serial m STUNMessage where

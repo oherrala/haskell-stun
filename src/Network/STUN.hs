@@ -2,7 +2,7 @@
 
 {-|
 Module      : Network.STUN
-Description : Implementation of STUN from RFC5389
+Description : Implementation of Session Traversal Utilities for NAT (STUN) protocol
 Copyright   : (c) Ossi Herrala, 2016
 License     : MIT
 Maintainer  : oherrala@gmail.com
@@ -16,12 +16,25 @@ as specified in RFC5389. https://tools.ietf.org/html/rfc5389
 
 module Network.STUN
   (
+    -- * Types
+    STUNMessage
+  , STUNType
+  , STUNAttributes
+  , STUNAttribute(..)
+  , TransactionID
+
+    -- * Pure parser and producer
+  , parseSTUNMessage
+  , produceSTUNMessage
+
     -- * Request STUN binding and return Binding response
-    sendBinding
+  , sendBinding
+
     -- * Send and receive STUN Binding Request/Response
   , sendBindingRequest
   , recvBindingResponse
-    -- Wait STUN binding and return Binding response
+
+    -- * Wait STUN binding and return Binding response
   , recvBinding
   , recvBindingRequest
   , sendBindingResponse
@@ -36,7 +49,7 @@ import qualified Network.Socket            as Socket hiding (recv, recvFrom,
                                                       send, sendTo)
 import qualified Network.Socket.ByteString as Socket
 
-import           Network.STUN.RFC5389
+import           Network.STUN.Internal
 
 
 software :: STUNAttribute
@@ -54,7 +67,7 @@ sendBinding sock = do
 
 -- | Send STUN Binding Request
 -- Returns Transaction ID
-sendBindingRequest :: Socket.Socket -> STUNAttributes -> IO Word96
+sendBindingRequest :: Socket.Socket -> STUNAttributes -> IO TransactionID
 sendBindingRequest sock attrs = do
   transId <- genTransactionId
   let
@@ -65,7 +78,7 @@ sendBindingRequest sock attrs = do
   return transId
 
 -- | Receive STUN Binding Response
--- This function waits until correct Binding Response is received
+-- This function waits until matching Binding Response is received
 recvBindingResponse :: Socket.Socket -> Word96 -> IO STUNMessage
 recvBindingResponse sock transId = do
   packet <- Socket.recv sock 65536
@@ -101,7 +114,6 @@ recvBindingRequest sock = do
       return (result, from)
     _ -> recvBindingRequest sock
 
-
 -- | Send STUN Binding Response
 sendBindingResponse :: Socket.Socket -> Socket.SockAddr -> TransactionID -> IO ()
 sendBindingResponse sock from transId = do
@@ -110,13 +122,7 @@ sendBindingResponse sock from transId = do
   _ <- Socket.sendTo sock packet from
   return ()
   where
-    mappedAddr =
-      case from of
-        Socket.SockAddrInet port addr ->
-          XORMappedAddressIPv4 addr (fromIntegral port)
-        Socket.SockAddrInet6 port _ addr _ ->
-          XORMappedAddressIPv6 addr (fromIntegral port) transId
-        _ -> error "We shouldn't be here"
+    mappedAddr = sockAddrToMappedAddress from transId
     attrs = [software, mappedAddr]
     response = STUNMessage BindingResponse transId attrs
 
@@ -124,8 +130,17 @@ sendBindingResponse sock from transId = do
 ------------------------------------------------------------------------
 -- Utils
 
+-- | Map Socket's SockAddr into STUN Mapped-Address attribute
+sockAddrToMappedAddress :: Socket.SockAddr -> TransactionID -> STUNAttribute
+sockAddrToMappedAddress (Socket.SockAddrInet port addr) _ =
+  XORMappedAddressIPv4 addr (fromIntegral port)
+sockAddrToMappedAddress (Socket.SockAddrInet6 port _ addr _) transId =
+  XORMappedAddressIPv6 addr (fromIntegral port) transId
+sockAddrToMappedAddress _ _ = error "Unsupported socket type"
+
+
 -- | Generate 96 bit Transaction ID
-genTransactionId :: IO Word96
+genTransactionId :: IO TransactionID
 genTransactionId = do
   -- FIXME: Not secure way?
   drg <- getSystemDRG

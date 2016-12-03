@@ -1,8 +1,8 @@
 {-# LANGUAGE Trustworthy #-}
 
 {-|
-Module      : Network.STUN.RFC5389
-Description : Implementation of STUN from RFC5389
+Module      : Network.STUN.Internal
+Description : Implementation of STUN
 Copyright   : (c) Ossi Herrala, 2016
 License     : MIT
 Maintainer  : oherrala@gmail.com
@@ -10,25 +10,13 @@ Stability   : experimental
 Portability : portable
 
 Implementation of STUN (Session Traversal Utilities for NAT) protocol
-as specified in RFC5389. https://tools.ietf.org/html/rfc5389
+as specified in:
 
+ RFC5389 https://tools.ietf.org/html/rfc5389
+ RFC5780 https://tools.ietf.org/html/rfc5780
 -}
 
-module Network.STUN.RFC5389
-       (
-         -- * Types
-         STUNAttribute(..)
-       , STUNAttributes
-       , STUNMessage(..)
-       , STUNType(..)
-       , TransactionID
-
-         -- * STUN parser (ByteString -> STUNMessage)
-       , parseSTUNMessage
-
-         -- * STUN producer (STUNMessage -> ByteString)
-       , produceSTUNMessage
-       ) where
+module Network.STUN.Internal where
 
 import           Control.Monad      (replicateM, unless, when)
 
@@ -132,7 +120,7 @@ getSTUNMessage = do
   msgCookie  <- getWord32be
   unless (msgCookie == 0x2112A442) $ fail "Magic cookie 0x2112A442 not found"
 
-  msgTransId <- getWord96be
+  msgTransId <- getTransactionID
   msgAttrs   <- isolate msgLen (getSTUNAttributes msgTransId)
   return $! STUNMessage msgType msgTransId msgAttrs
 
@@ -143,7 +131,7 @@ putSTUNMessage (STUNMessage msgType msgTransId msgAttrs) = do
   putWord16be $ fromStunType msgType
   putWord16be . fromIntegral . ByteString.length $ attrs
   putWord32be 0x2112A442 -- magic cookie
-  putWord96be msgTransId
+  putTransactionID msgTransId
   putByteString attrs
 
 toStunType :: Word16 -> STUNType
@@ -163,7 +151,7 @@ fromStunType (UnknownStunMessage x) = x
 -- STUN Attributes - https://tools.ietf.org/html/rfc5389#section-15
 
 -- | Get STUN Attributes
-getSTUNAttributes :: Word96 -> Get STUNAttributes
+getSTUNAttributes :: TransactionID -> Get STUNAttributes
 getSTUNAttributes transId = do
   left <- remaining
   if left < 4
@@ -174,7 +162,7 @@ getSTUNAttributes transId = do
     return $! attr : attrs
 
 -- | Get one STUN Attribute
-getSTUNAttribute :: Word96 -> Get STUNAttribute
+getSTUNAttribute :: TransactionID -> Get STUNAttribute
 getSTUNAttribute transId = do
   msgType <- getWord16be
   msgLen  <- getWord16be
@@ -319,7 +307,7 @@ getMappedAddress = do
 
 
 -- | Get STUN XOR-MAPPED-ADDRESS
-getXORMappedAddress :: Word96 -> Get STUNAttribute
+getXORMappedAddress :: TransactionID -> Get STUNAttribute
 getXORMappedAddress transId = do
   family <- getWord16be
 
@@ -353,7 +341,8 @@ getXORMappedAddress transId = do
       xAddr2 <- getWord32be
       xAddr3 <- getWord32be
       xAddr4 <- getWord32be
-      let Right (w2, w3, w4) = runGet getThreeWord32be (runPut $ putWord96be transId)
+      let Right (w2, w3, w4) = runGet getThreeWord32be
+                               (runPut . putTransactionID $ transId)
           addr1              = xAddr1 `xor` 0x2112A442
           addr2              = xAddr2 `xor` w2
           addr3              = xAddr3 `xor` w3
@@ -373,13 +362,21 @@ getChangeRequest = do
 ------------------------------------------------------------------------
 -- Utilities to work with Data.Serialize.Get and Data.Serialize.Put
 
--- | Read a Word64 in big endian format.
+-- | Read TransactionID
+getTransactionID :: Get TransactionID
+getTransactionID = getWord96be
+
+-- | Put TransactionID
+putTransactionID :: TransactionID -> Put
+putTransactionID = putWord96be
+
+-- | Read a Word96 in big endian format.
 getWord96be :: Get Word96
 getWord96be = do
   (b1, b2) <- getTwoOf getWord32be getWord64be
   return $! LargeKey b1 b2
 
--- | Put a Word64 in big endian format.
+-- | Put a Word96 in big endian format.
 putWord96be :: Word96 -> Put
 putWord96be value = do
   putWord32be $ loHalf value

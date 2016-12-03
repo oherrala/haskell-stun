@@ -6,15 +6,15 @@ import           Test.Tasty
 import           Test.Tasty.HUnit
 import           Test.Tasty.SmallCheck
 
-import Data.Serialize (runGet, runPut)
-import qualified Data.ByteString       as ByteString
+import qualified Data.ByteString       as BS
 import           Data.Either           (isLeft)
 import           Data.LargeWord        (LargeKey (..))
 
-import           Network.STUN.RFC5389
+import           Network.STUN
+import           Network.STUN.Internal
 
 import qualified RFC5769
-import SmallCheck()
+import           SmallCheck            ()
 
 main :: IO ()
 main = defaultMain tests
@@ -72,27 +72,32 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
 negativeTests :: TestTree
 negativeTests = testGroup "Negative Tests"
   [ testCase "Empty bytestring" $
-    let response = parseSTUNMessage ByteString.empty
+    let response = parseSTUNMessage BS.empty
     in assertBool "" $ isLeft response
 
   , testCase "One null byte" $
     let response = parseSTUNMessage "\0"
     in assertBool "" $ isLeft response
 
+  , testCase "One million null bytes" $
+    let nulls = BS.pack (replicate 1000000 0x00)
+        response = parseSTUNMessage nulls
+    in assertBool "" $ isLeft response
+
   , testCase "Incomplete STUN Binding Request (first 17 bytes)" $
-    let response = parseSTUNMessage $ ByteString.take 17 RFC5769.sampleRequest
+    let response = parseSTUNMessage $ BS.take 17 RFC5769.sampleRequest
     in assertBool "" $ isLeft response
 
   , testCase "Incomplete STUN Binding Request (lost first 17 bytes)" $
-    let response = parseSTUNMessage $ ByteString.drop 17 RFC5769.sampleRequest
+    let response = parseSTUNMessage $ BS.drop 17 RFC5769.sampleRequest
     in assertBool "" $ isLeft response
 
   , testCase "Incomplete STUN Binding Response (first 13 bytes)" $
-    let response = parseSTUNMessage $ ByteString.take 13 RFC5769.sampleIPv4Response
+    let response = parseSTUNMessage $ BS.take 13 RFC5769.sampleIPv4Response
     in assertBool "" $ isLeft response
 
   , testCase "Incomplete STUN Binding Response (lost first 13 bytes)" $
-    let response = parseSTUNMessage $ ByteString.drop 13 RFC5769.sampleIPv4Response
+    let response = parseSTUNMessage $ BS.drop 13 RFC5769.sampleIPv4Response
     in assertBool "" $ isLeft response
   ]
 
