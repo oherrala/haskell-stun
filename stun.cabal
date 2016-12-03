@@ -27,7 +27,6 @@ library
   build-depends:       base
                      , bytestring
                      , cereal
-                     , largeword
                      , network
                      , text
                      , cryptonite
@@ -52,7 +51,6 @@ test-suite test
   build-depends:       base
                      , bytestring
                      , cereal
-                     , largeword
                      , text
                        -- testing deps
                      , tasty

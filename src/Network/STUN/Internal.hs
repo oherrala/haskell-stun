@@ -20,12 +20,10 @@ module Network.STUN.Internal where
 
 import           Control.Monad      (replicateM, unless, when)
 
-import           Data.Bits          (setBit, shiftR, testBit, xor, (.&.))
+import           Data.Bits          (setBit, testBit, xor)
 
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
-
-import           Data.LargeWord
 
 import           Data.Serialize
 
@@ -52,7 +50,7 @@ data STUNType = BindingRequest
                 -- ^ Unknown message
               deriving (Show, Eq)
 
-type TransactionID = Word96
+type TransactionID = (Word32, Word32, Word32)
 
 type STUNAttributes = [STUNAttribute]
 
@@ -246,10 +244,8 @@ putSTUNAttribute (MappedAddressIPv6 addr port) = do
 
 putSTUNAttribute (XORMappedAddressIPv6 addr port transId) = do
   let (addr1, addr2, addr3, addr4) = addr
-      (LargeKey w2 w34) = transId
       w1 = 0x2112A442
-      w3 = fromIntegral $ w34 `shiftR` 32
-      w4 = fromIntegral $ w34 .&. 0xFFFF0000
+      (w2, w3, w4) = transId
   let xPort = port `xor` 0x2112
       xAddr1 = addr1 `xor` w1
       xAddr2 = addr2 `xor` w2
@@ -341,12 +337,12 @@ getXORMappedAddress transId = do
       xAddr2 <- getWord32be
       xAddr3 <- getWord32be
       xAddr4 <- getWord32be
-      let Right (w2, w3, w4) = runGet getThreeWord32be
-                               (runPut . putTransactionID $ transId)
-          addr1              = xAddr1 `xor` 0x2112A442
-          addr2              = xAddr2 `xor` w2
-          addr3              = xAddr3 `xor` w3
-          addr4              = xAddr4 `xor` w4
+      let w1           = 0x2112A442
+          (w2, w3, w4) = transId
+          addr1        = xAddr1 `xor` w1
+          addr2        = xAddr2 `xor` w2
+          addr3        = xAddr3 `xor` w3
+          addr4        = xAddr4 `xor` w4
       return $! MappedAddressIPv6 (addr1, addr2, addr3, addr4) port
     _ -> fail "Unknown type in MAPPED-ADDRESS attribute"
 
@@ -364,23 +360,15 @@ getChangeRequest = do
 
 -- | Read TransactionID
 getTransactionID :: Get TransactionID
-getTransactionID = getWord96be
+getTransactionID = do
+  w1 <- getWord32be
+  w2 <- getWord32be
+  w3 <- getWord32be
+  return (w1, w2, w3)
 
 -- | Put TransactionID
 putTransactionID :: TransactionID -> Put
-putTransactionID = putWord96be
-
--- | Read a Word96 in big endian format.
-getWord96be :: Get Word96
-getWord96be = do
-  (b1, b2) <- getTwoOf getWord32be getWord64be
-  return $! LargeKey b1 b2
-
--- | Put a Word96 in big endian format.
-putWord96be :: Word96 -> Put
-putWord96be value = do
-  putWord32be $ loHalf value
-  putWord64be $ hiHalf value
+putTransactionID (w1, w2, w3) = mapM_ putWord32be [w1, w2, w3]
 
 -- | Read three Word32s
 getThreeWord32be :: Get (Word32, Word32, Word32)

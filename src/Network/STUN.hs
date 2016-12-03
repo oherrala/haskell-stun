@@ -42,7 +42,6 @@ module Network.STUN
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)
 
-import           Data.LargeWord            (LargeKey (..), Word96)
 import           Data.Serialize            (decode)
 
 import qualified Network.Socket            as Socket hiding (recv, recvFrom,
@@ -79,7 +78,7 @@ sendBindingRequest sock attrs = do
 
 -- | Receive STUN Binding Response
 -- This function waits until matching Binding Response is received
-recvBindingResponse :: Socket.Socket -> Word96 -> IO STUNMessage
+recvBindingResponse :: Socket.Socket -> TransactionID -> IO STUNMessage
 recvBindingResponse sock transId = do
   packet <- Socket.recv sock 65536
   let response = parseSTUNMessage packet
@@ -145,6 +144,7 @@ genTransactionId = do
   -- FIXME: Not secure way?
   drg <- getSystemDRG
   let (bytes, _)  = randomBytesGenerate 12 drg
-      (Right w32) = decode bytes
-      (Right w64) = decode bytes
-  return $! LargeKey w32 w64
+      (Right w1) = decode bytes
+      (Right w2) = decode bytes
+      (Right w3) = decode bytes
+  return (w1, w2, w3)

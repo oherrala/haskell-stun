@@ -8,7 +8,6 @@ import           Test.Tasty.SmallCheck
 
 import qualified Data.ByteString       as BS
 import           Data.Either           (isLeft)
-import           Data.LargeWord        (LargeKey (..))
 
 import           Network.STUN
 import           Network.STUN.Internal
@@ -31,7 +30,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         (STUNMessage stunType transID attrs) = stunMessage
     in sequence_
        [ stunType @=? BindingRequest
-       , transID @=? LargeKey 0xb7e7a701 0xbc34d686fa87dfae
+       , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "STUN test client") attrs
        , assertBool "Username attribute" $ elem (Username "evtj:h6vY") attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xe57a3bcf) attrs
@@ -42,7 +41,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         (STUNMessage stunType transID attrs) = stunMessage
     in sequence_
        [ stunType @=? BindingResponse
-       , transID @=? LargeKey 0xb7e7a701 0xbc34d686fa87dfae
+       , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
        , assertBool "Mapped-Address attribute" $ elem (MappedAddressIPv4 3221225985 32853) attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc07d4c96) attrs
@@ -53,7 +52,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         (STUNMessage stunType transID attrs) = stunMessage
     in sequence_
        [ stunType @=? BindingResponse
-       , transID @=? LargeKey 0xb7e7a701 0xbc34d686fa87dfae
+       , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc8fb0b4c) attrs
        ]
@@ -63,7 +62,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         (STUNMessage stunType transID attrs) = stunMessage
     in sequence_
        [ stunType @=? BindingRequest
-       , transID @=? LargeKey 0x78ad3433 0xc6ad72c029da412e
+       , transID @=? (0x78ad3433, 0xc6ad72c0, 0x29da412e)
        , assertBool "Realm attribute" $ elem (Realm "example.org") attrs
        ]
   ]
