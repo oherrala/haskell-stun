@@ -42,7 +42,10 @@ module Network.STUN
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)
 
-import           Data.Serialize            (decode)
+import           Data.Bits                 (shiftL)
+import           Data.ByteString           (ByteString)
+import qualified Data.ByteString           as BS
+import           Data.Word                 (Word32)
 
 import qualified Network.Socket            as Socket hiding (recv, recvFrom,
                                                       send, sendTo)
@@ -97,7 +100,6 @@ recvBindingResponse sock transId = do
 recvBinding :: Socket.Socket -> IO ()
 recvBinding sock = do
   (request, from) <- recvBindingRequest sock
-  print request
   case request of
     STUNMessage BindingRequest transId _ ->
       sendBindingResponse sock from transId
@@ -117,7 +119,6 @@ recvBindingRequest sock = do
 sendBindingResponse :: Socket.Socket -> Socket.SockAddr -> TransactionID -> IO ()
 sendBindingResponse sock from transId = do
   let packet = produceSTUNMessage response
-  print response
   _ <- Socket.sendTo sock packet from
   return ()
   where
@@ -125,9 +126,6 @@ sendBindingResponse sock from transId = do
     attrs = [software, mappedAddr]
     response = STUNMessage BindingResponse transId attrs
 
-
-------------------------------------------------------------------------
--- Utils
 
 -- | Map Socket's SockAddr into STUN Mapped-Address attribute
 sockAddrToMappedAddress :: Socket.SockAddr -> TransactionID -> STUNAttribute
@@ -143,8 +141,17 @@ genTransactionId :: IO TransactionID
 genTransactionId = do
   -- FIXME: Not secure way?
   drg <- getSystemDRG
-  let (bytes, _)  = randomBytesGenerate 12 drg
-      (Right w1) = decode bytes
-      (Right w2) = decode bytes
-      (Right w3) = decode bytes
+  -- Need 12 bytes of random, but lets take some extra (24 bytes)
+  let (bs1, _)  = randomBytesGenerate 24 drg
+      (w1, bs2) = bsToWord32 bs1
+      (w2, bs3) = bsToWord32 bs2
+      (w3, _)   = bsToWord32 bs3
   return (w1, w2, w3)
+
+
+-- | Take Word32 out from ByteString
+bsToWord32 :: ByteString -> (Word32, ByteString)
+bsToWord32 bs = (word32, BS.drop 4 bs)
+  where
+    [b4, b3, b2, b1] = map fromIntegral . BS.unpack . BS.take 4 $ bs
+    word32 = (b4 `shiftL` 24 + b3 `shiftL` 16 + b2 `shiftL` 8 + b1)

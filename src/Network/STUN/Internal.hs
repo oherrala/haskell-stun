@@ -21,16 +21,13 @@ module Network.STUN.Internal where
 import           Control.Monad      (replicateM, unless, when)
 
 import           Data.Bits          (setBit, testBit, xor)
-
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
-
-import           Data.Serialize
-
 import           Data.Text          (Text)
 import qualified Data.Text.Encoding as Text
-
 import           Data.Word          (Word16, Word32)
+
+import           Data.Serialize
 
 import           Network.Socket     (HostAddress, HostAddress6)
 import qualified Network.Socket     as Socket
@@ -78,6 +75,7 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ Unknown attribute
                    deriving (Show, Eq)
 
+
 ------------------------------------------------------------------------
 -- | Parse and produce STUN messages
 
@@ -103,7 +101,7 @@ getSTUNMessage = do
   -- RFC5389 section 6: The most significant 2 bits of every STUN
   -- message MUST be zeroes.
   type' <- getWord16be
-  when (testBit type' 15 || testBit type' 14) $ fail "Not STUN Message"
+  when (testBit type' 15 || testBit type' 14) $ fail "Not a STUN Message"
   let msgType = toStunType type'
 
   -- RFC5389 section 6: The message length MUST contain the size, in
