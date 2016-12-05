@@ -3,7 +3,7 @@ import           System.Exit
 
 main :: IO ()
 main = do
-  ideas <- hlint ["app", "src", "test"]
+  ideas <- hlint ["src", "test"]
   if null ideas
     then exitSuccess
     else exitFailure
