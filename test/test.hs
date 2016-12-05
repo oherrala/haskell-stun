@@ -20,7 +20,7 @@ main = defaultMain tests
 
 
 tests :: TestTree
-tests = testGroup "Tests" [rfc5769Tests, negativeTests, scProps]
+tests = testGroup "Tests" [rfc5769Tests, unitTests, negativeTests, scProps]
 
 
 rfc5769Tests :: TestTree
@@ -98,6 +98,14 @@ negativeTests = testGroup "Negative Tests"
   , testCase "Incomplete STUN Binding Response (lost first 13 bytes)" $
     let response = parseSTUNMessage $ BS.drop 13 RFC5769.sampleIPv4Response
     in assertBool "" $ isLeft response
+  ]
+
+
+unitTests :: TestTree
+unitTests = testGroup "Unit Tests"
+  [ testCase "bsToWord32 [0x01, 0x02, 0x03, 0x04, 0x05]" $
+    let bs = BS.pack [0x01, 0x02, 0x03, 0x04, 0x05]
+    in (0x01020304, BS.pack [0x05]) @=? bsToWord32 bs
   ]
 
 

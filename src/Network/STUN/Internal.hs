@@ -20,7 +20,7 @@ module Network.STUN.Internal where
 
 import           Control.Monad      (replicateM, unless, when)
 
-import           Data.Bits          (setBit, testBit, xor)
+import           Data.Bits          (setBit, testBit, xor, shiftL)
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
 import           Data.Text          (Text)
@@ -381,3 +381,13 @@ getUTF8 :: Int -> Get Text
 getUTF8 len = do
   text <- getBytes len
   return $! Text.decodeUtf8 text
+
+-- | Take Word32 out from ByteString
+--
+-- FIXME: If given bytestring is too short, this throws exception
+bsToWord32 :: ByteString -> (Word32, ByteString)
+bsToWord32 bs = (word32, ByteString.drop 4 bs)
+  where
+    [b4, b3, b2, b1] =
+      map fromIntegral . ByteString.unpack . ByteString.take 4 $ bs
+    word32 = b4 `shiftL` 24 + b3 `shiftL` 16 + b2 `shiftL` 8 + b1

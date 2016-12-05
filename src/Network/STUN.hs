@@ -42,11 +42,6 @@ module Network.STUN
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)
 
-import           Data.Bits                 (shiftL)
-import           Data.ByteString           (ByteString)
-import qualified Data.ByteString           as BS
-import           Data.Word                 (Word32)
-
 import qualified Network.Socket            as Socket hiding (recv, recvFrom,
                                                       send, sendTo)
 import qualified Network.Socket.ByteString as Socket
@@ -147,11 +142,3 @@ genTransactionId = do
       (w2, bs3) = bsToWord32 bs2
       (w3, _)   = bsToWord32 bs3
   return (w1, w2, w3)
-
-
--- | Take Word32 out from ByteString
-bsToWord32 :: ByteString -> (Word32, ByteString)
-bsToWord32 bs = (word32, BS.drop 4 bs)
-  where
-    [b4, b3, b2, b1] = map fromIntegral . BS.unpack . BS.take 4 $ bs
-    word32 = (b4 `shiftL` 24 + b3 `shiftL` 16 + b2 `shiftL` 8 + b1)
