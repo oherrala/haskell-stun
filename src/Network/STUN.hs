@@ -17,8 +17,8 @@ as specified in RFC5389. https://tools.ietf.org/html/rfc5389
 module Network.STUN
   (
     -- * Types
-    STUNMessage
-  , STUNType
+    STUNMessage(..)
+  , STUNType(..)
   , STUNAttributes
   , STUNAttribute(..)
   , TransactionID
@@ -38,16 +38,21 @@ module Network.STUN
   , recvBinding
   , recvBindingRequest
   , sendBindingResponse
+
+    -- * Utils
+  , addrToXorMappedAddress
+  , addrToXorRelayedAddress
   ) where
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)
+
+import           Data.Word                 (Word16)
 
 import qualified Network.Socket            as Socket hiding (recv, recvFrom,
                                                       send, sendTo)
 import qualified Network.Socket.ByteString as Socket
 
 import           Network.STUN.Internal
-
 
 software :: STUNAttribute
 software = Software "Haskell STUN"
@@ -104,7 +109,9 @@ recvBinding sock = do
 recvBindingRequest :: Socket.Socket -> IO (STUNMessage, Socket.SockAddr)
 recvBindingRequest sock = do
   (packet, from) <- Socket.recvFrom sock 65536
+  putStrLn $ "Request from " ++ show from
   let request = parseSTUNMessage packet
+  print request
   case request of
     Right result@(STUNMessage BindingRequest _ _) ->
       return (result, from)
@@ -114,21 +121,34 @@ recvBindingRequest sock = do
 sendBindingResponse :: Socket.Socket -> Socket.SockAddr -> TransactionID -> IO ()
 sendBindingResponse sock from transId = do
   let packet = produceSTUNMessage response
+  print response
   _ <- Socket.sendTo sock packet from
   return ()
   where
-    mappedAddr = sockAddrToMappedAddress from transId
+    mappedAddr = addrToXorMappedAddress from transId
     attrs = [software, mappedAddr]
     response = STUNMessage BindingResponse transId attrs
 
 
+addrToXorAddress :: (Socket.HostAddress -> Word16 -> STUNAttribute)
+                 -> (Socket.HostAddress6 -> Word16 -> TransactionID -> STUNAttribute)
+                 -> Socket.SockAddr -> TransactionID
+                 -> STUNAttribute
+addrToXorAddress ipv4 ipv6 sockAddr transId =
+  case sockAddr of
+    Socket.SockAddrInet port addr      -> ipv4 addr (fromIntegral port)
+    Socket.SockAddrInet6 port _ addr _ -> ipv6 addr (fromIntegral port) transId
+    _                                  -> error "Unsupported socket type"
+
 -- | Map Socket's SockAddr into STUN Mapped-Address attribute
-sockAddrToMappedAddress :: Socket.SockAddr -> TransactionID -> STUNAttribute
-sockAddrToMappedAddress (Socket.SockAddrInet port addr) _ =
-  XORMappedAddressIPv4 addr (fromIntegral port)
-sockAddrToMappedAddress (Socket.SockAddrInet6 port _ addr _) transId =
-  XORMappedAddressIPv6 addr (fromIntegral port) transId
-sockAddrToMappedAddress _ _ = error "Unsupported socket type"
+addrToXorMappedAddress :: Socket.SockAddr -> TransactionID -> STUNAttribute
+addrToXorMappedAddress =
+  addrToXorAddress XORMappedAddressIPv4 XORMappedAddressIPv6
+
+-- | Map Socket's SockAddr into STUN Relayed-Address attribute
+addrToXorRelayedAddress :: Socket.SockAddr -> TransactionID -> STUNAttribute
+addrToXorRelayedAddress =
+  addrToXorAddress XORRelayedAddressIPv4 XORRelayedAddressIPv6
 
 
 -- | Generate 96 bit Transaction ID

@@ -20,6 +20,7 @@ instance Monad m => Serial m STUNMessage where
 
 instance Monad m => Serial m STUNType where
   series = cons0 BindingRequest \/ cons0 BindingResponse
+           \/ cons0 AllocateRequest \/ cons0 AllocateResponse
 
 instance Monad m => Serial m STUNAttribute where
   series = cons2 MappedAddressIPv4
@@ -28,8 +29,11 @@ instance Monad m => Serial m STUNAttribute where
            \/ cons1 Username
            \/ cons1 MessageIntegrity
            \/ cons1 Fingerprint
+           \/ cons2 ErrorCode
            \/ cons1 Realm
+           \/ cons1 Nonce
            \/ cons1 Software
+           \/ cons1 Lifetime
 
 
 --------------------------------------------------------------------------------

@@ -24,8 +24,9 @@ import           Data.Bits          (setBit, testBit, xor, shiftL)
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
 import           Data.Text          (Text)
+import qualified Data.Text          as Text
 import qualified Data.Text.Encoding as Text
-import           Data.Word          (Word16, Word32)
+import           Data.Word          (Word8, Word16, Word32)
 
 import           Data.Serialize
 
@@ -43,6 +44,12 @@ data STUNType = BindingRequest
                 -- ^ RFC5389 Binding Request message type
               | BindingResponse
                 -- ^ RFC5389 Binding Response message type
+              | AllocateRequest
+                -- ^ RFC5766 Allocate Request
+              | AllocateResponse
+                -- ^ RFC5766 Allocate Success Response
+              | AllocateError
+                -- ^ RFC5766 Allocate Error Response
               | UnknownStunMessage Word16
                 -- ^ Unknown message
               deriving (Show, Eq)
@@ -67,10 +74,31 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ MESSAGE-INTEGRITY Attribute
                    | Fingerprint Word32
                      -- ^ FINGERPRINT Attribute
+                   | ErrorCode Word16 Text
+                     -- ^ ERROR-Code Attribute
                    | Realm Text
                      -- ^ REALM Attribute
+                   | Nonce ByteString
+                     -- ^ NONCE Attribute
                    | Software Text
                      -- ^ SOFTWARE Attribute
+
+                   --
+                   -- TURN Attributes
+                   --
+                   | Lifetime Word32
+                     -- ^ RFC5766 LIFETIME
+                   | RequestedTransport Word8
+                     -- ^ RFC5766 REQUESTED-TRANSPORT
+                   | RelayedAddressIPv4 HostAddress Word16
+                   -- ^ IPv4 (XOR-)RELAYED-ADDRESS Attribute
+                   | RelayedAddressIPv6 HostAddress6 Word16
+                   -- ^ IPv6 (XOR-)RELAYED-ADDRESS Attribute
+                   | XORRelayedAddressIPv4 HostAddress Word16
+                   -- ^ IPv4 XOR-RELAYED-ADDRESS Attribute
+                   | XORRelayedAddressIPv6 HostAddress6 Word16 TransactionID
+                   -- ^ IPv6 XOR-RELAYED-ADDRESS Attribute
+
                    | UnknownAttribute Word16 ByteString
                      -- ^ Unknown attribute
                    deriving (Show, Eq)
@@ -123,9 +151,10 @@ getSTUNMessage = do
 -- | Put one STUN Message
 putSTUNMessage :: STUNMessage -> Put
 putSTUNMessage (STUNMessage msgType msgTransId msgAttrs) = do
-  let attrs = runPut $ putSTUNAttributes msgAttrs
-  putWord16be $ fromStunType msgType
-  putWord16be . fromIntegral . ByteString.length $ attrs
+  let attrs = runPut (putSTUNAttributes msgAttrs)
+      attrsLen = fromIntegral . ByteString.length $ attrs
+  putWord16be (fromStunType msgType)
+  putWord16be attrsLen
   putWord32be 0x2112A442 -- magic cookie
   putTransactionID msgTransId
   putByteString attrs
@@ -133,11 +162,17 @@ putSTUNMessage (STUNMessage msgType msgTransId msgAttrs) = do
 toStunType :: Word16 -> STUNType
 toStunType 0x0001 = BindingRequest
 toStunType 0x0101 = BindingResponse
+toStunType 0x0003 = AllocateRequest
+toStunType 0x0103 = AllocateResponse
+toStunType 0x0113 = AllocateError
 toStunType x      = UnknownStunMessage x
 
 fromStunType :: STUNType -> Word16
 fromStunType BindingRequest         = 0x0001
 fromStunType BindingResponse        = 0x0101
+fromStunType AllocateRequest        = 0x0003
+fromStunType AllocateResponse       = 0x0103
+fromStunType AllocateError          = 0x0113
 fromStunType (UnknownStunMessage x) = x
 
 
@@ -161,26 +196,30 @@ getSTUNAttributes transId = do
 getSTUNAttribute :: TransactionID -> Get STUNAttribute
 getSTUNAttribute transId = do
   msgType <- getWord16be
-  msgLen  <- getWord16be
-  let len = fromIntegral msgLen
+  len     <- fromIntegral <$> getWord16be
+  -- let len = fromIntegral msgLen
 
   msgValue <- case msgType of
     0x0001 -> getMappedAddress                 -- RFC5389 15.1. MAPPED-ADDRESS
     0x0003 -> getChangeRequest                 -- RFC5780 7.2.  CHANGE-REQUEST
     0x0020 -> getXORMappedAddress transId      -- RFC5389 15.2. XOR-MAPPED-ADDRESS
-    -- FIXME: verify max length
-    0x0006 -> Username <$> getUTF8 len         -- RFC5389 15.3. USERNAME
+    0x0006 -> Username <$> getUTF8 len (MaxBytes 512) -- RFC5389 15.3. USERNAME
     0x0008 -> MessageIntegrity <$> getBytes 20 -- RFC5389 15.4. MESSAGE-INTEGRITY
+
     -- FIXME: Calculate XOR
     0x8028 -> Fingerprint <$> getWord32be      -- RFC5389 15.5. FINGERPRINT
-                                               -- RFC5389 15.6. ERROR-CODE
-    -- FIXME: verify max length
-    0x0014 -> Realm <$> getUTF8 len            -- RFC5389 15.7. REALM
-                                               -- RFC5389 15.8. NONCE
+    0x0009 -> getErrorCode len                 -- RFC5389 15.6. ERROR-CODE
+    0x0014 -> Realm <$> getUTF8 len (MaxChars 127) -- RFC5389 15.7. REALM
+    -- FIXME: Verify max length
+    0x0015 -> Nonce <$> getBytes len           -- RFC5389 15.8. NONCE
                                                -- RFC5389 15.9. UNKNOWN-ATTRIBUTES
-    -- FIXME: verify max length
-    0x8022 -> Software <$> getUTF8 len         -- RFC5389 15.10. SOFTWARE
+    0x8022 -> Software <$> getUTF8 len (MaxChars 127) -- RFC5389 15.10. SOFTWARE
                                                -- RFC5389 15.11. ALTERNATE-SERVER
+
+    0x000D -> Lifetime <$> getWord32be         -- RFC5766 14.2. LIFETIME
+    0x0016 -> getXORRelayedAddress transId     -- RFC5766 xx.x. XOR-RELAYED-ADDRESS
+    0x0019 -> getRequestedTransport            -- RFC5766 14.7. REQUESTED-TRANSPORT
+
     _ -> do                                    -- Catch all unknown attributes
       bytes <- getBytes len
       return $! UnknownAttribute msgType bytes
@@ -217,6 +256,16 @@ putSTUNAttribute (MappedAddressIPv4 addr port) = do
     putWord16be port                -- port
     mapM_ putWord8 [b1, b2, b3, b4] -- IPv4 address
 
+putSTUNAttribute (MappedAddressIPv6 addr port) = do
+  let (addr1, addr2, addr3, addr4) = addr
+  attrTLV 0x0001 $ do
+    putWord16be 0x0002 -- family
+    putWord16be port   -- port
+    putWord32be addr1  -- IPv6 address
+    putWord32be addr2  -- IPv6 address
+    putWord32be addr3  -- IPv6 address
+    putWord32be addr4  -- IPv6 address
+
 putSTUNAttribute (XORMappedAddressIPv4 addr port) = do
   -- See getXORMappedAddress function for how XOR encoding works
   let (b1, b2, b3, b4) = Socket.hostAddressToTuple addr
@@ -230,15 +279,18 @@ putSTUNAttribute (XORMappedAddressIPv4 addr port) = do
     putWord16be xPort               -- port
     mapM_ putWord8 [x1, x2, x3, x4] -- IPv4 address
 
-putSTUNAttribute (MappedAddressIPv6 addr port) = do
-  let (addr1, addr2, addr3, addr4) = addr
-  attrTLV 0x0001 $ do
-    putWord16be 0x0002 -- family
-    putWord16be port   -- port
-    putWord32be addr1  -- IPv6 address
-    putWord32be addr2  -- IPv6 address
-    putWord32be addr3  -- IPv6 address
-    putWord32be addr4  -- IPv6 address
+putSTUNAttribute (XORRelayedAddressIPv4 addr port) = do
+  -- See getXORMappedAddress function for how XOR encoding works
+  let (b1, b2, b3, b4) = Socket.hostAddressToTuple addr
+  let xPort = port `xor` 0x2112
+      x1 = b1 `xor` 0x21
+      x2 = b2 `xor` 0x12
+      x3 = b3 `xor` 0xA4
+      x4 = b4 `xor` 0x42
+  attrTLV 0x0016 $ do
+    putWord16be 0x0001              -- family
+    putWord16be xPort               -- port
+    mapM_ putWord8 [x1, x2, x3, x4] -- IPv4 address
 
 putSTUNAttribute (XORMappedAddressIPv6 addr port transId) = do
   let (addr1, addr2, addr3, addr4) = addr
@@ -267,17 +319,33 @@ putSTUNAttribute (ChangeRequest changeIP changePort) =
 putSTUNAttribute (Username text) =
   attrTLV 0x0006 (putByteString . Text.encodeUtf8 $ text)
 
-putSTUNAttribute (MessageIntegrity _)         = undefined
+putSTUNAttribute (MessageIntegrity _) = undefined
 
 putSTUNAttribute (Fingerprint fp) = attrTLV 0x8028 (putWord32be fp)
+
+putSTUNAttribute (ErrorCode errorCode reason) =
+  attrTLV 0x009 $ do
+  putWord16be 0
+  -- The Class represents the hundreds digit of the error code.
+  putWord8 (fromIntegral $ errorCode `quot` 100)
+  -- The Number represents the error code modulo 100.
+  putWord8 (fromIntegral $ errorCode `mod` 100)
+  putByteString . Text.encodeUtf8 $ reason
 
 putSTUNAttribute (Realm text) =
   attrTLV 0x0014 (putByteString . Text.encodeUtf8 $ text)
 
+putSTUNAttribute (Nonce bytes) = attrTLV 0x0015 (putByteString bytes)
+
 putSTUNAttribute (Software text) =
   attrTLV 0x8022 (putByteString . Text.encodeUtf8 $ text)
 
+-- RFC5766 LIFETIME
+putSTUNAttribute (Lifetime seconds) =
+  attrTLV 0x000D (putWord32be seconds)
+
 putSTUNAttribute attr = fail $ "Unknown STUN Attribute: " ++ show attr
+
 
 -- | Get STUN MAPPED-ADDRESS
 getMappedAddress :: Get STUNAttribute
@@ -300,16 +368,18 @@ getMappedAddress = do
     _ -> fail "Unknown type in MAPPED-ADDRESS attribute"
 
 
--- | Get STUN XOR-MAPPED-ADDRESS
-getXORMappedAddress :: TransactionID -> Get STUNAttribute
-getXORMappedAddress transId = do
+getXORAddress :: TransactionID
+              -> (HostAddress -> Word16 -> STUNAttribute)
+              -- ^ MappedAddressIPv4 or (XOR)RelayedAddressIPv4 constructor
+              -> (HostAddress6 -> Word16 -> STUNAttribute)
+              -- ^ MappedAddressIPv6 or (XOR)RelayedAddressIPv6 constructor
+              -> Get STUNAttribute
+getXORAddress transId ipv4 ipv6 = do
   family <- getWord16be
 
   -- X-Port is computed by taking the mapped port in host byte order,
   -- XOR'ing it with the most significant 16 bits of the magic cookie,
   -- and then the converting the result to network byte order.
-  -- .. yeah, right..
-  -- Just take the port in network byte order and XOR with 0x2112
   xPort <- getWord16be
   let port =  xPort `xor` 0x2112
 
@@ -320,10 +390,17 @@ getXORMappedAddress transId = do
       -- taking the mapped IP address in host byte order, XOR'ing it
       -- with the magic cookie, and converting the result to network
       -- byte order.
-      -- .. See above X-Port.. :)
-      xAddr <- getWord32be
-      let addr = xAddr `xor` 0x2112A442
-      return $! MappedAddressIPv4 addr port
+      xAddr1 <- getWord8
+      xAddr2 <- getWord8
+      xAddr3 <- getWord8
+      xAddr4 <- getWord8
+      let addr = Socket.tupleToHostAddress
+                 ( xAddr1 `xor` 0x21
+                 , xAddr2 `xor` 0x12
+                 , xAddr3 `xor` 0xA4
+                 , xAddr4 `xor` 0x42
+                 )
+      return $! ipv4 addr port
     -- IPv6
     0x0002 -> do
       -- If the IP address family is IPv6, X-Address is computed by
@@ -341,17 +418,55 @@ getXORMappedAddress transId = do
           addr2        = xAddr2 `xor` w2
           addr3        = xAddr3 `xor` w3
           addr4        = xAddr4 `xor` w4
-      return $! MappedAddressIPv6 (addr1, addr2, addr3, addr4) port
-    _ -> fail "Unknown type in MAPPED-ADDRESS attribute"
+      return $! ipv6 (addr1, addr2, addr3, addr4) port
+    _ -> fail "Unknown family in attribute"
+
+-- | Get STUN XOR-MAPPED-ADDRESS
+getXORMappedAddress :: TransactionID -> Get STUNAttribute
+getXORMappedAddress transId =
+  getXORAddress transId MappedAddressIPv4 MappedAddressIPv6
+
+-- | Get STUN XOR-RELAYED-ADDRESS
+getXORRelayedAddress :: TransactionID -> Get STUNAttribute
+getXORRelayedAddress transId =
+  -- FIXME: Should these not be XOR addresses below?
+  getXORAddress transId RelayedAddressIPv4 RelayedAddressIPv6
+
+
+-- | Get ERROR-CODE
+-- RFC5389 15.6. https://tools.ietf.org/html/rfc5389#section-15.6
+getErrorCode :: Int -> Get STUNAttribute
+getErrorCode len = do
+  _reserved  <- getWord16be
+  errorClass <- fromIntegral <$> getWord8
+  number     <- fromIntegral <$> getWord8
+
+  let errorCode = errorClass*100 + number
+  unless (300 >= errorCode && errorCode <= 699) $
+    fail ("Invalid error code " ++ show errorCode)
+
+  reason <- getUTF8 (len-32) (MaxChars 127)
+  return $! ErrorCode errorCode reason
+
 
 -- | Get STUN CHANGE-REQUEST
--- RFC5780 7.2 https://tools.ietf.org/html/rfc5780#section-7.2
+-- RFC5780 7.2. https://tools.ietf.org/html/rfc5780#section-7.2
 getChangeRequest :: Get STUNAttribute
 getChangeRequest = do
   flags <- getWord32be
   let changeIP   = testBit flags 2
       changePort = testBit flags 3
   return $! ChangeRequest changeIP changePort
+
+-- | GET TURN REQUESTED-TRANSPORT
+-- RFC5766 14.7. https://tools.ietf.org/html/rfc5766#section-14.7
+getRequestedTransport :: Get STUNAttribute
+getRequestedTransport = do
+  protocol <- getWord8
+  _rffu1   <- getWord8
+  _rffu2   <- getWord16be
+  return $! RequestedTransport protocol
+
 
 ------------------------------------------------------------------------
 -- Utilities to work with Data.Serialize.Get and Data.Serialize.Put
@@ -376,11 +491,18 @@ getThreeWord32be = do
   b3 <- getWord32be
   return (b1, b2, b3)
 
--- | Pull n bytes from the input, as a strict Data.Text.
-getUTF8 :: Int -> Get Text
-getUTF8 len = do
-  text <- getBytes len
-  return $! Text.decodeUtf8 text
+data UTF8Max = MaxBytes Int
+             | MaxChars Int
+
+getUTF8 :: Int -> UTF8Max -> Get Text
+getUTF8 byteLen (MaxBytes maxLen) = do
+  when (byteLen > maxLen) $ fail "Too many bytes to read"
+  return . Text.decodeUtf8 =<< getBytes byteLen
+
+getUTF8 byteLen (MaxChars maxLen) = do
+  text <- Text.decodeUtf8 <$> getBytes byteLen
+  when (Text.length text > maxLen) $ fail "Too many characters in UTF-8 string"
+  return text
 
 -- | Take Word32 out from ByteString
 --

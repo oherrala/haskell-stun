@@ -9,6 +9,8 @@ import           Test.Tasty.SmallCheck
 import qualified Data.ByteString       as BS
 import           Data.Either           (isLeft)
 
+import qualified Network.Socket        as Socket
+
 import           Network.STUN
 import           Network.STUN.Internal
 
@@ -39,11 +41,13 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
   , testCase "2.2. Sample IPv4 Response" $
     let (Right stunMessage) = parseSTUNMessage RFC5769.sampleIPv4Response
         (STUNMessage stunType transID attrs) = stunMessage
+        ipAddr = Socket.tupleToHostAddress (192,0,2,1)
+        port = 32853
     in sequence_
        [ stunType @=? BindingResponse
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
-       , assertBool "Mapped-Address attribute" $ elem (MappedAddressIPv4 3221225985 32853) attrs
+       , assertBool "Mapped-Address attribute" $ elem (MappedAddressIPv4 ipAddr port) attrs
        , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc07d4c96) attrs
        ]
 
