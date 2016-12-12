@@ -27,6 +27,7 @@ library
   build-depends:       base
                      , bytestring
                      , cereal
+                     , digest
                      , network
                      , text
                      , cryptonite

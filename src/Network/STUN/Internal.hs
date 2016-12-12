@@ -20,13 +20,15 @@ module Network.STUN.Internal where
 
 import           Control.Monad      (replicateM, unless, when)
 
-import           Data.Bits          (setBit, testBit, xor, shiftL)
+import           Data.Bits          (setBit, shiftL, testBit, xor)
 import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
+import           Data.Digest.CRC32
+import           Data.List          (find, sort)
 import           Data.Text          (Text)
 import qualified Data.Text          as Text
 import qualified Data.Text.Encoding as Text
-import           Data.Word          (Word8, Word16, Word32)
+import           Data.Word          (Word16, Word32, Word8)
 
 import           Data.Serialize
 
@@ -72,7 +74,7 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ USERNAME Attribute
                    | MessageIntegrity ByteString
                      -- ^ MESSAGE-INTEGRITY Attribute
-                   | Fingerprint Word32
+                   | Fingerprint (Maybe Word32)
                      -- ^ FINGERPRINT Attribute
                    | ErrorCode Word16 Text
                      -- ^ ERROR-Code Attribute
@@ -103,13 +105,32 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ Unknown attribute
                    deriving (Show, Eq)
 
+instance Ord STUNAttribute where
+  -- STUN Attributes should be ordered so that:
+  --
+  --   [everything else, MessageIntegrity, Fingerprint]
+  --
+  -- See: https://tools.ietf.org/html/rfc5389#section-15.4
+  -- See: https://tools.ietf.org/html/rfc5389#section-15.5
+  --
+  compare (Fingerprint _) (MessageIntegrity _) = GT
+  compare (MessageIntegrity _) _               = GT
+  compare (Fingerprint _) _                    = GT
+  compare _ _                                  = EQ
+
 
 ------------------------------------------------------------------------
 -- | Parse and produce STUN messages
 
 -- | Parse STUN message
 parseSTUNMessage :: ByteString -> Either String STUNMessage
-parseSTUNMessage = runGet getSTUNMessage
+parseSTUNMessage bytes = do
+  msg@(STUNMessage _ _ attrs) <- runGet getSTUNMessage bytes
+  if hasFingerprint attrs
+    then if verifyFingerprint msg bytes
+         then return msg
+         else fail "STUN Message fingerprint verification failed"
+    else return msg
 
 
 -- | Produce STUN message
@@ -146,11 +167,19 @@ getSTUNMessage = do
 
   msgTransId <- getTransactionID
   msgAttrs   <- isolate msgLen (getSTUNAttributes msgTransId)
+
   return $! STUNMessage msgType msgTransId msgAttrs
+
 
 -- | Put one STUN Message
 putSTUNMessage :: STUNMessage -> Put
-putSTUNMessage (STUNMessage msgType msgTransId msgAttrs) = do
+putSTUNMessage = putSTUNMessage' . addFingerprint' . sortAttrs'
+
+-- | Helper for putSTUNMessage
+--
+-- The actual Putter for STUNMessage
+putSTUNMessage' :: STUNMessage -> Put
+putSTUNMessage' (STUNMessage msgType msgTransId msgAttrs) = do
   let attrs = runPut (putSTUNAttributes msgAttrs)
       attrsLen = fromIntegral . ByteString.length $ attrs
   putWord16be (fromStunType msgType)
@@ -158,6 +187,27 @@ putSTUNMessage (STUNMessage msgType msgTransId msgAttrs) = do
   putWord32be 0x2112A442 -- magic cookie
   putTransactionID msgTransId
   putByteString attrs
+
+-- | Helper for putSTUNMessage
+--
+-- Return new STUNMessage with attributes sorted
+sortAttrs' :: STUNMessage -> STUNMessage
+sortAttrs' (STUNMessage typ tid attrs) = STUNMessage typ tid (sort attrs)
+
+-- | Helper for putSTUNMessage
+--
+-- Return new STUNMessage with Fingerprint attribute calculated or old
+-- STUNMessage if no fingerprint attribute present.
+addFingerprint' :: STUNMessage -> STUNMessage
+addFingerprint' msg@(STUNMessage msgType transId attrs) =
+  if hasFingerprint attrs
+  then let bytes    = runPut (putSTUNMessage' msg)
+           crc      = calculateFingerprint msg bytes
+           oldAttrs = filter (not . isFingerprint) attrs
+           newAttrs = oldAttrs ++ [Fingerprint (Just crc)]
+  in STUNMessage msgType transId newAttrs
+  else msg
+
 
 toStunType :: Word16 -> STUNType
 toStunType 0x0001 = BindingRequest
@@ -197,7 +247,6 @@ getSTUNAttribute :: TransactionID -> Get STUNAttribute
 getSTUNAttribute transId = do
   msgType <- getWord16be
   len     <- fromIntegral <$> getWord16be
-  -- let len = fromIntegral msgLen
 
   msgValue <- case msgType of
     0x0001 -> getMappedAddress                 -- RFC5389 15.1. MAPPED-ADDRESS
@@ -206,8 +255,7 @@ getSTUNAttribute transId = do
     0x0006 -> Username <$> getUTF8 len (MaxBytes 512) -- RFC5389 15.3. USERNAME
     0x0008 -> MessageIntegrity <$> getBytes 20 -- RFC5389 15.4. MESSAGE-INTEGRITY
 
-    -- FIXME: Calculate XOR
-    0x8028 -> Fingerprint <$> getWord32be      -- RFC5389 15.5. FINGERPRINT
+    0x8028 -> Fingerprint . Just <$> getWord32be -- RFC5389 15.5. FINGERPRINT
     0x0009 -> getErrorCode len                 -- RFC5389 15.6. ERROR-CODE
     0x0014 -> Realm <$> getUTF8 len (MaxChars 127) -- RFC5389 15.7. REALM
     -- FIXME: Verify max length
@@ -235,6 +283,15 @@ putSTUNAttributes = mapM_ putSTUNAttribute
 
 
 -- Helper for encoding STUN Attributes
+--
+{- 0                   1                   2                   3
+   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |         Type                  |            Length             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                         Value (variable)                ....
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+-}
 attrTLV :: Word16 -> Put -> Put
 attrTLV type' value = do
   let payload = runPut value
@@ -321,7 +378,12 @@ putSTUNAttribute (Username text) =
 
 putSTUNAttribute (MessageIntegrity _) = undefined
 
-putSTUNAttribute (Fingerprint fp) = attrTLV 0x8028 (putWord32be fp)
+putSTUNAttribute (Fingerprint value) =
+  attrTLV 0x8028 $
+  case value of
+    Just fp -> putWord32be fp
+    Nothing -> putWord32be 0xdeadbeef -- 0xdeadbeef should not appear on wire
+
 
 putSTUNAttribute (ErrorCode errorCode reason) =
   attrTLV 0x009 $ do
@@ -497,7 +559,7 @@ data UTF8Max = MaxBytes Int
 getUTF8 :: Int -> UTF8Max -> Get Text
 getUTF8 byteLen (MaxBytes maxLen) = do
   when (byteLen > maxLen) $ fail "Too many bytes to read"
-  return . Text.decodeUtf8 =<< getBytes byteLen
+  fmap Text.decodeUtf8 (getBytes byteLen)
 
 getUTF8 byteLen (MaxChars maxLen) = do
   text <- Text.decodeUtf8 <$> getBytes byteLen
@@ -513,3 +575,43 @@ bsToWord32 bs = (word32, ByteString.drop 4 bs)
     [b4, b3, b2, b1] =
       map fromIntegral . ByteString.unpack . ByteString.take 4 $ bs
     word32 = b4 `shiftL` 24 + b3 `shiftL` 16 + b2 `shiftL` 8 + b1
+
+
+hasRealm :: STUNAttributes -> Bool
+hasRealm = any isRealm
+  where
+    isRealm (Realm _) = True
+    isRealm _         = False
+
+isFingerprint :: STUNAttribute -> Bool
+isFingerprint (Fingerprint _) = True
+isFingerprint _               = False
+
+hasFingerprint :: STUNAttributes -> Bool
+hasFingerprint = any isFingerprint
+
+
+-- | Calculate CRC32 over STUN Message
+--
+-- This function expects the message has Fingerprint as last
+-- attribute.
+calculateFingerprint :: STUNMessage -> ByteString -> Word32
+calculateFingerprint (STUNMessage _ _ attrs) bytes =
+  if hasFingerprint attrs
+  then let len     = ByteString.length bytes
+           partial = ByteString.take (len-8) bytes
+           -- STUN's CRC is xorred with magic value
+           crc     = crc32 partial `xor` 0x5354554e
+       in crc
+  else error "Fingerprint attribute missing from message"
+
+
+-- | Verify Fingerprint (CRC32) in STUN Message
+--
+verifyFingerprint :: STUNMessage -> ByteString -> Bool
+verifyFingerprint msg@(STUNMessage _ _ attrs) bytes =
+  case find isFingerprint attrs of
+    Just (Fingerprint (Just fp)) ->
+      let crc = calculateFingerprint msg bytes
+      in crc == fp
+    _ -> False

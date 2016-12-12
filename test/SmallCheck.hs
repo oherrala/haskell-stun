@@ -28,7 +28,6 @@ instance Monad m => Serial m STUNAttribute where
            \/ cons2 ChangeRequest
            \/ cons1 Username
            \/ cons1 MessageIntegrity
-           \/ cons1 Fingerprint
            \/ cons2 ErrorCode
            \/ cons1 Realm
            \/ cons1 Nonce

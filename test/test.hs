@@ -8,6 +8,7 @@ import           Test.Tasty.SmallCheck
 
 import qualified Data.ByteString       as BS
 import           Data.Either           (isLeft)
+import           Data.List             (sort)
 
 import qualified Network.Socket        as Socket
 
@@ -35,7 +36,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "STUN test client") attrs
        , assertBool "Username attribute" $ elem (Username "evtj:h6vY") attrs
-       , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xe57a3bcf) attrs
+       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleRequest
        ]
 
   , testCase "2.2. Sample IPv4 Response" $
@@ -48,7 +49,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
        , assertBool "Mapped-Address attribute" $ elem (MappedAddressIPv4 ipAddr port) attrs
-       , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc07d4c96) attrs
+       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleIPv4Response
        ]
 
   , testCase "2.3. Sample IPv6 Response" $
@@ -58,7 +59,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        [ stunType @=? BindingResponse
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software "test vector") attrs
-       , assertBool "Fingerprint attribute" $ elem (Fingerprint 0xc8fb0b4c) attrs
+       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleIPv6Response
        ]
 
   , testCase "2.4. Sample Request with Long-Term Authentication" $
@@ -68,6 +69,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
        [ stunType @=? BindingRequest
        , transID @=? (0x78ad3433, 0xc6ad72c0, 0x29da412e)
        , assertBool "Realm attribute" $ elem (Realm "example.org") attrs
+       , assertBool "Fingerprint attribute" $ not (verifyFingerprint stunMessage RFC5769.sampleReqWithLongTermAuth)
        ]
   ]
 
@@ -106,7 +108,29 @@ negativeTests = testGroup "Negative Tests"
 
 
 unitTests :: TestTree
-unitTests = testGroup "Unit Tests"
+unitTests = testGroup "Unit Tests" [stunAttrsSortTests, miscTests]
+
+stunAttrsSortTests :: TestTree
+stunAttrsSortTests = testGroup "STUNAttributes sorting"
+  [ testCase "sort [Fingerprint, MessageIntegrity, Username]" $
+    let attrs = [Fingerprint (Just 1), MessageIntegrity "foo", Username "trimp"]
+    in [Username "trimp", MessageIntegrity "foo", Fingerprint (Just 1)] @=? sort attrs
+
+  , testCase "sort [Fingerprint, Username]" $
+    let attrs = [Fingerprint (Just 1), Username "trimp"]
+    in [Username "trimp", Fingerprint (Just 1)] @=? sort attrs
+
+  , testCase "sort [MessageIntegrity, Username]" $
+    let attrs = [MessageIntegrity "foo", Username "trimp"]
+    in [Username "trimp", MessageIntegrity "foo"] @=? sort attrs
+
+  , testCase "sort [Lifetime, Username]" $
+    let attrs = [Lifetime 1, Username "trimp"]
+    in [Lifetime 1, Username "trimp"] @=? sort attrs
+  ]
+
+miscTests :: TestTree
+miscTests = testGroup "Misc Tests"
   [ testCase "bsToWord32 [0x01, 0x02, 0x03, 0x04, 0x05]" $
     let bs = BS.pack [0x01, 0x02, 0x03, 0x04, 0x05]
     in (0x01020304, BS.pack [0x05]) @=? bsToWord32 bs
@@ -118,4 +142,11 @@ scProps = testGroup "SmallCheck properties"
   [ testProperty "STUNMessage == parseSTUNMessage . produceSTUNMessage" $
     \msg -> let (Right msg') = parseSTUNMessage . produceSTUNMessage $ msg
             in msg' == msg
+
+  , testProperty "STUNMessage fingerprint" $
+    \(STUNMessage msgType transId attrs) ->
+      let msg = STUNMessage msgType transId (Fingerprint Nothing : attrs)
+          bytes = produceSTUNMessage msg
+          (Right msg') = parseSTUNMessage bytes
+      in verifyFingerprint msg' bytes
   ]

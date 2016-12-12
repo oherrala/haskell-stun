@@ -42,6 +42,10 @@ module Network.STUN
     -- * Utils
   , addrToXorMappedAddress
   , addrToXorRelayedAddress
+
+    -- * Checks for attributes
+  , hasFingerprint
+  , hasRealm
   ) where
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)
@@ -111,7 +115,6 @@ recvBindingRequest sock = do
   (packet, from) <- Socket.recvFrom sock 65536
   putStrLn $ "Request from " ++ show from
   let request = parseSTUNMessage packet
-  print request
   case request of
     Right result@(STUNMessage BindingRequest _ _) ->
       return (result, from)
@@ -121,12 +124,11 @@ recvBindingRequest sock = do
 sendBindingResponse :: Socket.Socket -> Socket.SockAddr -> TransactionID -> IO ()
 sendBindingResponse sock from transId = do
   let packet = produceSTUNMessage response
-  print response
   _ <- Socket.sendTo sock packet from
   return ()
   where
     mappedAddr = addrToXorMappedAddress from transId
-    attrs = [software, mappedAddr]
+    attrs = [software, mappedAddr, Fingerprint Nothing]
     response = STUNMessage BindingResponse transId attrs
 
 
