@@ -27,6 +27,11 @@ import qualified Data.ByteString as ByteString
 
 
 -- | 2.1.  Sample Request
+--
+-- Software name:  "STUN test client" (without quotes)
+-- Username:  "evtj:h6vY" (without quotes)
+-- Password:  "VOkJxbRl1RmTxUk/WvJxBt" (without quotes)
+--
 sampleRequest :: ByteString
 sampleRequest = ByteString.pack [
   0x00, 0x01, 0x00, 0x58, --     Request type and message length
@@ -59,6 +64,11 @@ sampleRequest = ByteString.pack [
   ]
 
 -- | 2.2.  Sample IPv4 Response
+--
+-- Password:  "VOkJxbRl1RmTxUk/WvJxBt" (without quotes)
+-- Software name:  "test vector" (without quotes)
+-- Mapped address:  192.0.2.1 port 32853
+--
 sampleIPv4Response :: ByteString
 sampleIPv4Response = ByteString.pack [
   0x01, 0x01, 0x00, 0x3c, --     Response type and message length
@@ -83,7 +93,12 @@ sampleIPv4Response = ByteString.pack [
   0xc0, 0x7d, 0x4c, 0x96  --     CRC32 fingerprint
   ]
 
--- 2.3.  Sample IPv6 Response
+-- | 2.3.  Sample IPv6 Response
+--
+-- Password:  "VOkJxbRl1RmTxUk/WvJxBt" (without quotes)
+-- Software name:  "test vector" (without quotes)
+-- Mapped address:  2001:db8:1234:5678:11:2233:4455:6677 port 32853
+--
 sampleIPv6Response :: ByteString
 sampleIPv6Response = ByteString.pack [
   0x01, 0x01, 0x00, 0x48, --     Response type and message length
