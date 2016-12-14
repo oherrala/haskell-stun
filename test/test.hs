@@ -29,37 +29,59 @@ tests = testGroup "Tests" [rfc5769Tests, unitTests, negativeTests, scProps]
 rfc5769Tests :: TestTree
 rfc5769Tests = testGroup "RFC5769 Test Vectors"
   [ testCase "2.1. Sample Request" $
-    let (Right stunMessage) = parseSTUNMessage RFC5769.sampleRequest
-        (STUNMessage stunType transID attrs) = stunMessage
+    let bytes = RFC5769.sampleRequest
+        Right msg = parseSTUNMessage bytes
+        STUNMessage stunType transID attrs = msg
+        username = "evtj:h6vY"
+        password = "VOkJxbRl1RmTxUk/WvJxBt"
+        software = "STUN test client"
     in sequence_
        [ stunType @=? BindingRequest
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
-       , assertBool "Software attribute" $ elem (Software "STUN test client") attrs
-       , assertBool "Username attribute" $ elem (Username "evtj:h6vY") attrs
-       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleRequest
+       , assertBool "Software attribute" $ elem (Software software) attrs
+       , assertBool "Username attribute" $ elem (Username username) attrs
+       , assertBool "Message-Integrity attribute" $
+         verifyMessageIntegrity msg bytes password
+       , assertBool "Fingerprint attribute" $ verifyFingerprint msg bytes
        ]
 
   , testCase "2.2. Sample IPv4 Response" $
-    let (Right stunMessage) = parseSTUNMessage RFC5769.sampleIPv4Response
-        (STUNMessage stunType transID attrs) = stunMessage
+    let bytes = RFC5769.sampleIPv4Response
+        Right msg = parseSTUNMessage bytes
+        STUNMessage stunType transID attrs = msg
+        password = "VOkJxbRl1RmTxUk/WvJxBt"
+        software = "test vector"
         ipAddr = Socket.tupleToHostAddress (192,0,2,1)
         port = 32853
     in sequence_
        [ stunType @=? BindingResponse
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
-       , assertBool "Software attribute" $ elem (Software "test vector") attrs
-       , assertBool "Mapped-Address attribute" $ elem (MappedAddressIPv4 ipAddr port) attrs
-       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleIPv4Response
+       , assertBool "Software attribute" $ elem (Software software) attrs
+       , assertBool "Mapped-Address attribute" $
+         elem (MappedAddressIPv4 ipAddr port) attrs
+       , assertBool "Message-Integrity attribute" $
+         verifyMessageIntegrity msg bytes password
+       , assertBool "Fingerprint attribute" $ verifyFingerprint msg bytes
        ]
 
   , testCase "2.3. Sample IPv6 Response" $
-    let (Right stunMessage) = parseSTUNMessage RFC5769.sampleIPv6Response
-        (STUNMessage stunType transID attrs) = stunMessage
+    let bytes = RFC5769.sampleIPv6Response
+        (Right msg) = parseSTUNMessage bytes
+        (STUNMessage stunType transID attrs) = msg
+        password = "VOkJxbRl1RmTxUk/WvJxBt"
+        software = "test vector"
+        ipAddr = Socket.tupleToHostAddress6
+                 (0x2001,0xdb8,0x1234,0x5678,0x11,0x2233,0x4455,0x6677)
+        port = 32853
     in sequence_
        [ stunType @=? BindingResponse
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
-       , assertBool "Software attribute" $ elem (Software "test vector") attrs
-       , assertBool "Fingerprint attribute" $ verifyFingerprint stunMessage RFC5769.sampleIPv6Response
+       , assertBool "Software attribute" $ elem (Software software) attrs
+       , assertBool "Mapped-Address attribute" $
+         elem (MappedAddressIPv6 ipAddr port) attrs
+       , assertBool "Message-Integrity attribute" $
+         verifyMessageIntegrity msg bytes password
+       , assertBool "Fingerprint attribute" $ verifyFingerprint msg bytes
        ]
 
   , testCase "2.4. Sample Request with Long-Term Authentication" $
@@ -113,16 +135,21 @@ unitTests = testGroup "Unit Tests" [stunAttrsSortTests, miscTests]
 stunAttrsSortTests :: TestTree
 stunAttrsSortTests = testGroup "STUNAttributes sorting"
   [ testCase "sort [Fingerprint, MessageIntegrity, Username]" $
-    let attrs = [Fingerprint (Just 1), MessageIntegrity "foo", Username "trimp"]
-    in [Username "trimp", MessageIntegrity "foo", Fingerprint (Just 1)] @=? sort attrs
+    let fp    = Fingerprint (Just 1)
+        mi    = MessageIntegrity (Password "foo")
+        ui    = Username "trimp"
+        attrs = [fp, mi, ui]
+    in [ui, mi, fp] @=? sort attrs
 
   , testCase "sort [Fingerprint, Username]" $
-    let attrs = [Fingerprint (Just 1), Username "trimp"]
-    in [Username "trimp", Fingerprint (Just 1)] @=? sort attrs
+    let fp    = Fingerprint (Just 1)
+        ui    = Username "trimp"
+        attrs = [fp, ui]
+    in [ui, fp] @=? sort attrs
 
   , testCase "sort [MessageIntegrity, Username]" $
-    let attrs = [MessageIntegrity "foo", Username "trimp"]
-    in [Username "trimp", MessageIntegrity "foo"] @=? sort attrs
+    let attrs = [MessageIntegrity (Password "foo"), Username "trimp"]
+    in [Username "trimp", MessageIntegrity (Password "foo")] @=? sort attrs
 
   , testCase "sort [Lifetime, Username]" $
     let attrs = [Lifetime 1, Username "trimp"]

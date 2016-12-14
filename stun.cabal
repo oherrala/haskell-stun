@@ -27,10 +27,11 @@ library
   build-depends:       base
                      , bytestring
                      , cereal
+                     , cryptonite
                      , digest
+                     , memory
                      , network
                      , text
-                     , cryptonite
 
 test-suite hlint
   hs-source-dirs:      test

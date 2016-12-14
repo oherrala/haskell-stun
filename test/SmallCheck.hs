@@ -27,7 +27,6 @@ instance Monad m => Serial m STUNAttribute where
            \/ cons2 MappedAddressIPv6
            \/ cons2 ChangeRequest
            \/ cons1 Username
-           \/ cons1 MessageIntegrity
            \/ cons2 ErrorCode
            \/ cons1 Realm
            \/ cons1 Nonce
