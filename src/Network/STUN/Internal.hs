@@ -229,7 +229,8 @@ addMessageIntegrity' msg@(STUNMessage msgType transId attrs) =
       let bytes    = runPut (putSTUNMessage' msg)
           mac      = calculateMessageIntegrity msg bytes password
           oldAttrs = takeWhile (not . isMessageIntegrity) attrs
-          newAttrs = oldAttrs ++ [MessageIntegrity (MAC (convert mac))]
+          fp       = filter isFingerprint attrs
+          newAttrs = oldAttrs ++ [MessageIntegrity (MAC (convert mac))] ++ fp
       in
         STUNMessage msgType transId newAttrs
     _ -> msg

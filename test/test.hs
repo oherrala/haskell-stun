@@ -219,6 +219,17 @@ scProps = testGroup "SmallCheck properties"
           password     = "Nice password"
           bytes        = produceSTUNMessage msg
           (Right msg') = parseSTUNMessage bytes
+      in verifyMessageIntegrity msg' bytes password
+
+  , testProperty "STUNMessage message-integrity and fingerprint" $
+    \(STUNMessage msgType transId attrs) ->
+      let msg          = STUNMessage msgType transId (fp : msgInt : attrs)
+          msgInt       = MessageIntegrity (Password password)
+          fp           = Fingerprint Nothing
+          password     = "Nice password"
+          bytes        = produceSTUNMessage msg
+          (Right msg') = parseSTUNMessage bytes
       in and [ verifyMessageIntegrity msg' bytes password
-             , verifyFingerprint msg' bytes ]
+             , verifyFingerprint msg' bytes
+             ]
   ]
