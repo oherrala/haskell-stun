@@ -161,6 +161,39 @@ miscTests = testGroup "Misc Tests"
   [ testCase "bsToWord32 [0x01, 0x02, 0x03, 0x04, 0x05]" $
     let bs = BS.pack [0x01, 0x02, 0x03, 0x04, 0x05]
     in (0x01020304, BS.pack [0x05]) @=? bsToWord32 bs
+
+  , testCase "Messate-Integrity with Short-Term Authentication" $
+    let password = "swordfish"
+        msg = STUNMessage BindingRequest (12, 654, 2) [MessageIntegrity (Password password)]
+        bytes = produceSTUNMessage msg
+        (Right parsed) = parseSTUNMessage bytes
+    in assertBool "" $ verifyMessageIntegrity parsed bytes password
+
+  , testCase "Messate-Integrity with Long-Term Authentication" $
+    let realm = "Moria"
+        user = "Gandalf"
+        password = "mellon"
+        nonce = "This is nonce-nse"
+        attrs = [ Realm realm
+                , Username user
+                , Nonce nonce
+                , MessageIntegrity (Password password) ]
+        msg = STUNMessage BindingRequest (12, 654, 2) attrs
+        bytes = produceSTUNMessage msg
+        (Right parsed) = parseSTUNMessage bytes
+    in assertBool "" $ verifyMessageIntegrity parsed bytes password
+
+  , testCase "Messate-Integrity with Long-Term Authentication but Username missing" $
+    let realm = "Moria"
+        password = "mellon"
+        nonce = "This is nonce-nse"
+        attrs = [ Realm realm
+                , Nonce nonce
+                , MessageIntegrity (Password password) ]
+        msg = STUNMessage BindingRequest (1, 33, 7) attrs
+        bytes = produceSTUNMessage msg
+        (Right parsed) = parseSTUNMessage bytes
+    in assertBool "" $ verifyMessageIntegrity parsed bytes password
   ]
 
 
@@ -172,8 +205,20 @@ scProps = testGroup "SmallCheck properties"
 
   , testProperty "STUNMessage fingerprint" $
     \(STUNMessage msgType transId attrs) ->
-      let msg = STUNMessage msgType transId (Fingerprint Nothing : attrs)
-          bytes = produceSTUNMessage msg
+      let msg          = STUNMessage msgType transId (fp : attrs)
+          fp           = Fingerprint Nothing
+          bytes        = produceSTUNMessage msg
           (Right msg') = parseSTUNMessage bytes
       in verifyFingerprint msg' bytes
+
+  , testProperty "STUNMessage message-integrity" $
+    \(STUNMessage msgType transId attrs) ->
+      let msg          = STUNMessage msgType transId (fp : msgInt : attrs)
+          msgInt       = MessageIntegrity (Password password)
+          fp           = Fingerprint Nothing
+          password     = "Nice password"
+          bytes        = produceSTUNMessage msg
+          (Right msg') = parseSTUNMessage bytes
+      in and [ verifyMessageIntegrity msg' bytes password
+             , verifyFingerprint msg' bytes ]
   ]
