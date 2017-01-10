@@ -15,3 +15,23 @@ TURN:
 Even moar:
 
 * [RFC7350](https://tools.ietf.org/html/rfc7350): Datagram Transport Layer Security (DTLS) as Transport for Session Traversal Utilities for NAT (STUN)
+
+# Observed in the wild
+
+## Chrome's TURN
+
+* C: Allocate Request [Requested-Transport]
+* S: Allocate Error [Error-Code, Nonce, Realm, Software, Fingerprint]
+* C: Allocate Request [Request-Transport, Username, Realm, Nonce, Message-Integrity]
+* S: Allocate Success [XOR-Relayed-Address, XOR-Mapped-Address, Lifetime, Software, Message-Integrity, Fingerprint]
+* C: Refresh Request [Lifetime, Username, Realm, Nonce, Message-Integrity]
+* S: Refresh Success [Lifetime, Software, Message-Integrity, Fingerprint]
+
+## Firefox's TURN
+
+* C: Allocate Request [Requested-Transport]
+* S: Allocate Error [Error-Code, Nonce, Realm, Software, Fingerprint]
+* C: Allocate Request [Request-Transport, Username, Realm, Nonce, Message-Integrity]
+* S: Allocate Success [XOR-Relayed-Address, XOR-Mapped-Address, Lifetime, Software, Message-Integrity, Fingerprint]
+* C: Refresh Request [Lifetime, Username, Realm, Nonce, Message-Integrity]
+* S: Refresh Success [Lifetime, Software, Message-Integrity, Fingerprint]

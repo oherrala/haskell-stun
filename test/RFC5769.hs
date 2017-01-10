@@ -126,7 +126,15 @@ sampleIPv6Response = ByteString.pack [
   0xc8, 0xfb, 0x0b, 0x4c  --     CRC32 fingerprint
   ]
 
--- 2.4. Sample Request with Long-Term Authentication
+-- | 2.4. Sample Request with Long-Term Authentication
+--
+-- Username: "<U+30DE><U+30C8><U+30EA><U+30C3><U+30AF><U+30B9>" (without quotes)
+--           unaffected by SASLprep [RFC4013] processing
+--           as UTF-8 string: "マトリックス"
+-- Password: "The<U+00AD>M<U+00AA>tr<U+2168>" and "TheMatrIX" (without quotes)
+--           respectively before and after SASLprep processing
+-- Nonce:  "f//499k954d6OL34oL9FSTvy64sA" (without quotes)
+-- Realm:  "example.org" (without quotes)
 sampleReqWithLongTermAuth :: ByteString
 sampleReqWithLongTermAuth = ByteString.pack [
   0x00, 0x01, 0x00, 0x60,  --    Request type and message length

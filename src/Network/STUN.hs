@@ -22,6 +22,7 @@ module Network.STUN
   , STUNAttributes
   , STUNAttribute(..)
   , TransactionID
+  , MessageIntegrityValue(..)
 
     -- * Pure parser and producer
   , parseSTUNMessage
@@ -42,10 +43,15 @@ module Network.STUN
     -- * Utils
   , addrToXorMappedAddress
   , addrToXorRelayedAddress
+  , shortTermKey
+  , longTermKey
 
     -- * Checks for attributes
   , hasFingerprint
   , hasRealm
+
+    -- * Get values out from attributes
+  , getUsername
   ) where
 
 import           Crypto.Random             (getSystemDRG, randomBytesGenerate)

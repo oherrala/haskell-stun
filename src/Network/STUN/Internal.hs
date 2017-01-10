@@ -27,6 +27,7 @@ import           Data.ByteString    (ByteString)
 import qualified Data.ByteString    as ByteString
 import           Data.Digest.CRC32
 import           Data.List          (find, sort)
+import           Data.Maybe         (isJust)
 import           Data.Text          (Text)
 import qualified Data.Text          as Text
 import qualified Data.Text.Encoding as Text
@@ -35,8 +36,8 @@ import           Data.Word          (Word16, Word32, Word8)
 import           Network.Socket     (HostAddress, HostAddress6)
 import qualified Network.Socket     as Socket
 
-import           Crypto.Hash
-import           Crypto.MAC.HMAC
+import           Crypto.Hash        (MD5 (..), SHA1, hashWith)
+import           Crypto.MAC.HMAC    (HMAC, hmac)
 
 import           Data.Serialize
 
@@ -119,6 +120,7 @@ instance Ord STUNAttribute where
   -- See: https://tools.ietf.org/html/rfc5389#section-15.5
   --
   compare (Fingerprint _) (MessageIntegrity _) = GT
+  compare (MessageIntegrity _) (Fingerprint _) = LT
   compare (MessageIntegrity _) _               = GT
   compare (Fingerprint _) _                    = GT
   compare _ _                                  = EQ
@@ -128,7 +130,7 @@ instance Ord STUNAttribute where
 -- When producing STUN Message, place Password value here
 -- When STUN Message is parsed, HMAC value should be present
 data MessageIntegrityValue = MAC ByteString
-                           | Password Text
+                           | Key STUNKey
   deriving (Show, Eq)
 
 
@@ -225,16 +227,16 @@ sortAttrs' (STUNMessage typ tid attrs) = STUNMessage typ tid (sort attrs)
 addMessageIntegrity' :: STUNMessage -> STUNMessage
 addMessageIntegrity' msg@(STUNMessage msgType transId attrs) =
   case find isMessageIntegrity attrs of
-    Just (MessageIntegrity (Password password)) ->
+    Just (MessageIntegrity (Key key)) ->
       let bytes    = runPut (putSTUNMessage' msg)
-          mac      = calculateMessageIntegrity msg bytes password
+          mac      = convert (calculateMessageIntegrity msg bytes key)
           oldAttrs = takeWhile (not . isMessageIntegrity) attrs
           fp       = filter isFingerprint attrs
-          newAttrs = oldAttrs ++ [MessageIntegrity (MAC (convert mac))] ++ fp
+          mi       = MessageIntegrity (MAC mac)
+          newAttrs = oldAttrs ++ [mi] ++ fp
       in
         STUNMessage msgType transId newAttrs
     _ -> msg
-
 
 -- | Helper for putSTUNMessage
 --
@@ -298,7 +300,7 @@ getSTUNAttribute transId = do
 
     -- RFC5389 15.4. MESSAGE-INTEGRITY
     0x0008 -> do
-      sha1 <- getBytes 20
+      sha1 <- getByteString 20
       return . MessageIntegrity . MAC . convert $ sha1
 
     0x8028 -> Fingerprint . Just <$> getWord32be -- RFC5389 15.5. FINGERPRINT
@@ -425,8 +427,8 @@ putSTUNAttribute (Username text) =
 putSTUNAttribute (MessageIntegrity value) =
   attrTLV 0x0008 $
   case value of
-    MAC mac -> putByteString (convert mac)
-    Password _ -> putByteString (ByteString.pack deadbeef)
+    MAC mac -> putByteString mac
+    Key _   -> putByteString (ByteString.pack deadbeef)
   where
     deadbeef = concat (replicate 5 [0xde, 0xad, 0xbe, 0xef])
 
@@ -630,20 +632,52 @@ bsToWord32 bs = (word32, ByteString.drop 4 bs)
 
 
 hasRealm :: STUNAttributes -> Bool
-hasRealm = any isRealm
+hasRealm = isJust . getRealm
+
+hasNonce :: STUNAttributes -> Bool
+hasNonce = isJust . getNonce
 
 hasUsername :: STUNAttributes -> Bool
-hasUsername = any isUsername
+hasUsername = isJust . getRealm
 
 hasFingerprint :: STUNAttributes -> Bool
-hasFingerprint = any isFingerprint
+hasFingerprint = isJust . getFingerprint
 
 hasMessageIntegrity :: STUNAttributes -> Bool
 hasMessageIntegrity = any isMessageIntegrity
 
+getRealm :: STUNAttributes -> Maybe Text
+getRealm attrs = do
+  (Realm realm) <- find isRealm attrs
+  return realm
+
+getNonce :: STUNAttributes -> Maybe ByteString
+getNonce attrs = do
+  (Nonce nonce) <- find isNonce attrs
+  return nonce
+
+getUsername :: STUNAttributes -> Maybe Text
+getUsername attrs = do
+  (Username name) <- find isUsername attrs
+  return name
+
+getFingerprint :: STUNAttributes -> Maybe (Maybe Word32)
+getFingerprint attrs = do
+  (Fingerprint fp) <- find isFingerprint attrs
+  return fp
+
+getMessageIntegrity :: STUNAttributes -> Maybe MessageIntegrityValue
+getMessageIntegrity attrs = do
+  (MessageIntegrity fp) <- find isMessageIntegrity attrs
+  return fp
+
 isRealm :: STUNAttribute -> Bool
 isRealm (Realm _) = True
 isRealm _         = False
+
+isNonce :: STUNAttribute -> Bool
+isNonce (Nonce _) = True
+isNonce _         = False
 
 isUsername :: STUNAttribute -> Bool
 isUsername (Username _) = True
@@ -656,16 +690,6 @@ isFingerprint _               = False
 isMessageIntegrity :: STUNAttribute -> Bool
 isMessageIntegrity (MessageIntegrity _) = True
 isMessageIntegrity _                    = False
-
-getRealm :: STUNAttributes -> Maybe Text
-getRealm attrs = do
-  (Realm realm) <- find isRealm attrs
-  return realm
-
-getUsername :: STUNAttributes -> Maybe Text
-getUsername attrs = do
-  (Username name) <- find isUsername attrs
-  return name
 
 
 -- | Calculate CRC32 over STUN Message
@@ -695,11 +719,27 @@ verifyFingerprint msg@(STUNMessage _ _ attrs) bytes =
     _ -> False
 
 
+data STUNKey = STUNKey ByteString deriving (Show, Eq)
+
+-- For short-term credentials:
+-- key = SASLprep(password)
+shortTermKey :: Text -> STUNKey
+shortTermKey = STUNKey . Text.encodeUtf8
+
+-- For long-term credentials, the key is 16 bytes:
+-- key = MD5(username ":" realm ":" SASLprep(password))
+longTermKey :: Text -> Text -> Text -> STUNKey
+longTermKey realm username password = STUNKey key
+  where
+    keyLine = Text.concat [ username, ":", realm, ":", password ]
+    key = convert . hashWith MD5 . Text.encodeUtf8 $ keyLine
+
+
 -- | Calculate Message Integrity (HMAC SHA1) over STUN Message
 --
 -- Requires password as SASLprep'd Text
-calculateMessageIntegrity :: STUNMessage -> ByteString -> Text -> HMAC SHA1
-calculateMessageIntegrity (STUNMessage _ _ attrs) bytes password =
+calculateMessageIntegrity :: STUNMessage -> ByteString -> STUNKey -> HMAC SHA1
+calculateMessageIntegrity (STUNMessage _ _ attrs) bytes (STUNKey key) =
   if not . hasMessageIntegrity $ attrs
   then error "Message-Integrity attribute missing from message"
   else
@@ -708,13 +748,12 @@ calculateMessageIntegrity (STUNMessage _ _ attrs) bytes password =
         (msgCookie, rest3)  = ByteString.splitAt 4 rest2
         (transId, msgAttrs) = ByteString.splitAt 12 rest3
 
-        key = Text.encodeUtf8 password
         fpLen = if hasFingerprint attrs then 8 else 0
 
         len = let lenWords = map fromIntegral (ByteString.unpack msgLen)
               in head lenWords `shiftL` 8 + (lenWords !! 1) :: Word16
 
-        lenForMac = runPut . putWord16be $ len-fpLen
+        lenForMac = runPut . putWord16be $ len - fpLen
         attrsForMac = ByteString.take (fromIntegral (len - fpLen - 24)) msgAttrs
 
         bytes' = msgType
@@ -730,10 +769,10 @@ calculateMessageIntegrity (STUNMessage _ _ attrs) bytes password =
 -- | Verify Message Integrity (HMAC SHA1) in STUN Message
 --
 -- Requires password as SASLprep'd Text
-verifyMessageIntegrity :: STUNMessage -> ByteString -> Text -> Bool
-verifyMessageIntegrity msg@(STUNMessage _ _ attrs) bytes password =
+verifyMessageIntegrity :: STUNMessage -> ByteString -> STUNKey -> Bool
+verifyMessageIntegrity msg@(STUNMessage _ _ attrs) bytes key =
   case find isMessageIntegrity attrs of
     Just (MessageIntegrity (MAC oldMac)) ->
-      let mac = convert (calculateMessageIntegrity msg bytes password)
-      in mac == oldMac
+      let mac = calculateMessageIntegrity msg bytes key
+      in convert mac == oldMac
     _ -> False
