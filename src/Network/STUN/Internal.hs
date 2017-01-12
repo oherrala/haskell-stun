@@ -558,7 +558,7 @@ getErrorCode len = do
   number     <- fromIntegral <$> getWord8
 
   let errorCode = errorClass*100 + number
-  unless (300 >= errorCode && errorCode <= 699) $
+  unless (300 <= errorCode && errorCode <= 699) $
     fail ("Invalid error code " ++ show errorCode)
 
   reason <- getUTF8 (len-32) (MaxChars 127)
