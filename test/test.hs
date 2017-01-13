@@ -273,6 +273,14 @@ scProps = testGroup "SmallCheck properties"
     \msg -> let (Right msg') = parseSTUNMessage . produceSTUNMessage $ msg
             in msg' == msg
 
+  , testProperty "STUNAttribute == parseSTUNAttribute . produceSTUNAttribute" $
+    \attr ->
+      let bytes = produceSTUNAttribute attr
+          parsed = parseSTUNAttribute bytes (0,0,0)
+      in case parsed of
+        Left _ -> False
+        Right attr' -> attr' == attr
+
   , testProperty "STUNMessage fingerprint" $
     \(STUNMessage msgType transId attrs) ->
       let msg          = STUNMessage msgType transId (fp : attrs)

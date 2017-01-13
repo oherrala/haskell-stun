@@ -270,6 +270,20 @@ fromStunType AllocateError          = 0x0113
 fromStunType (UnknownStunMessage x) = x
 
 
+
+------------------------------------------------------------------------
+-- | Parse and produce STUN attributes
+--
+-- These are intended to help testing
+
+parseSTUNAttribute :: ByteString -> TransactionID -> Either String STUNAttribute
+parseSTUNAttribute bytes transId = runGet (getSTUNAttribute transId) bytes
+
+-- | Produce STUN attribute
+produceSTUNAttribute :: STUNAttribute -> ByteString
+produceSTUNAttribute = runPut . putSTUNAttribute
+
+
 ------------------------------------------------------------------------
 -- | Get / Put STUN Attributes
 --
@@ -307,7 +321,7 @@ getSTUNAttribute transId = do
     0x0009 -> getErrorCode len                 -- RFC5389 15.6. ERROR-CODE
     0x0014 -> Realm <$> getUTF8 len (MaxChars 127) -- RFC5389 15.7. REALM
     -- FIXME: Verify max length
-    0x0015 -> Nonce <$> getBytes len           -- RFC5389 15.8. NONCE
+    0x0015 -> Nonce <$> getByteString len      -- RFC5389 15.8. NONCE
                                                -- RFC5389 15.9. UNKNOWN-ATTRIBUTES
     0x8022 -> Software <$> getUTF8 len (MaxChars 127) -- RFC5389 15.10. SOFTWARE
                                                -- RFC5389 15.11. ALTERNATE-SERVER
@@ -317,7 +331,7 @@ getSTUNAttribute transId = do
     0x0019 -> getRequestedTransport            -- RFC5766 14.7. REQUESTED-TRANSPORT
 
     _ -> do                                    -- Catch all unknown attributes
-      bytes <- getBytes len
+      bytes <- getByteString len
       return $! UnknownAttribute msgType bytes
 
   --Padding to next full 32 bits = 4 bytes
@@ -438,9 +452,8 @@ putSTUNAttribute (Fingerprint value) =
     Just fp -> putWord32be fp
     Nothing -> putWord32be 0xdeadbeef -- 0xdeadbeef should not appear on wire
 
-
 putSTUNAttribute (ErrorCode errorCode reason) =
-  attrTLV 0x009 $ do
+  attrTLV 0x0009 $ do
   putWord16be 0
   -- The Class represents the hundreds digit of the error code.
   putWord8 (fromIntegral $ errorCode `quot` 100)
@@ -456,9 +469,15 @@ putSTUNAttribute (Nonce bytes) = attrTLV 0x0015 (putByteString bytes)
 putSTUNAttribute (Software text) =
   attrTLV 0x8022 (putByteString . Text.encodeUtf8 $ text)
 
--- RFC5766 LIFETIME
 putSTUNAttribute (Lifetime seconds) =
   attrTLV 0x000D (putWord32be seconds)
+
+-- https://tools.ietf.org/html/rfc5766#section-14.7
+putSTUNAttribute (RequestedTransport transport) =
+  attrTLV 0x0019 $ do
+  putWord8 transport
+  putWord8 0
+  putWord16be 0
 
 putSTUNAttribute attr = fail $ "Unknown STUN Attribute: " ++ show attr
 
@@ -561,7 +580,8 @@ getErrorCode len = do
   unless (300 <= errorCode && errorCode <= 699) $
     fail ("Invalid error code " ++ show errorCode)
 
-  reason <- getUTF8 (len-32) (MaxChars 127)
+  -- reserved, errorClass and number take first 32 bits = 4 bytes
+  reason <- getUTF8 (len-4) (MaxChars 127)
   return $! ErrorCode errorCode reason
 
 
@@ -612,12 +632,13 @@ data UTF8Max = MaxBytes Int
 
 getUTF8 :: Int -> UTF8Max -> Get Text
 getUTF8 byteLen (MaxBytes maxLen) = do
-  when (byteLen > maxLen) $ fail "Too many bytes to read"
-  fmap Text.decodeUtf8 (getBytes byteLen)
+  when (byteLen > maxLen) $ fail "getUTF8: Too many bytes to read"
+  fmap Text.decodeUtf8 (getByteString byteLen)
 
 getUTF8 byteLen (MaxChars maxLen) = do
-  text <- Text.decodeUtf8 <$> getBytes byteLen
-  when (Text.length text > maxLen) $ fail "Too many characters in UTF-8 string"
+  text <- Text.decodeUtf8 <$> getByteString byteLen
+  when (Text.length text > maxLen) $
+    fail "getUTF8: Too many characters in UTF-8 string"
   return text
 
 -- | Take Word32 out from ByteString

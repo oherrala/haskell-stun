@@ -62,4 +62,5 @@ test-suite test
                      , tasty-hunit
                      , tasty-smallcheck
                      , smallcheck
+                     , smallcheck-series
                      , stun
