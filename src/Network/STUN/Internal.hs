@@ -48,18 +48,23 @@ import           Data.Serialize
 data STUNMessage = STUNMessage STUNType TransactionID STUNAttributes
                  deriving (Show, Eq)
 
-data STUNType = BindingRequest
-                -- ^ RFC5389 Binding Request message type
-              | BindingResponse
-                -- ^ RFC5389 Binding Response message type
-              | AllocateRequest
-                -- ^ RFC5766 Allocate Request
-              | AllocateResponse
-                -- ^ RFC5766 Allocate Success Response
-              | AllocateError
-                -- ^ RFC5766 Allocate Error Response
-              | UnknownStunMessage Word16
-                -- ^ Unknown message
+data Method = Binding
+            | Allocate
+            | Refresh
+            | Send
+            | Data
+            | CreatePermission
+            | ChannelBind
+            | UnknownMethod Word16
+            deriving(Eq,Show)
+
+data Class = Request
+           | Response
+           | Error
+           | Indication
+           deriving(Eq,Show)
+
+data STUNType = STUNType Method Class
               deriving (Show, Eq)
 
 type TransactionID = (Word32, Word32, Word32)
@@ -117,7 +122,7 @@ data STUNAttribute = MappedAddressIPv4 HostAddress Word16
                      -- ^ RFC8656 XOR-PEER-ADDRESS
                    | XORPeerAddressIPv6 HostAddress6 Word16 TransactionID
                      -- ^ RFC8656 XOR-PEER-ADDRESS
-                   | Data ByteString
+                   | DataValue ByteString
                      -- ^ RFC8656 DATA
                    | RequestedAddressFamily Socket.Family
                      -- ^ RFC8656 REQUESTED-ADDRESS-FAMILY
@@ -295,22 +300,46 @@ addFingerprint' msg@(STUNMessage msgType transId attrs) =
   in STUNMessage msgType transId newAttrs
   else msg
 
+encodeMethod :: Method -> Word16
+encodeMethod Binding          = 0x001
+encodeMethod Allocate         = 0x003
+encodeMethod Refresh          = 0x004
+encodeMethod Send             = 0x006
+encodeMethod Data             = 0x007
+encodeMethod CreatePermission = 0x008
+encodeMethod ChannelBind      = 0x009
+encodeMethod (UnknownMethod x) = x .&. 0x3eef
+
+decodeMethod :: Word16 -> Method
+decodeMethod 0x001 = Binding
+decodeMethod 0x003 = Allocate
+decodeMethod 0x004 = Refresh
+decodeMethod 0x006 = Send
+decodeMethod 0x007 = Data
+decodeMethod 0x008 = CreatePermission
+decodeMethod 0x009 = ChannelBind
+decodeMethod x = UnknownMethod (x .&. 0x3eef)
+
+decodeClass :: Word16 -> Class
+decodeClass 0x0000 = Request
+decodeClass 0x0100 = Response
+decodeClass 0x0110 = Error
+decodeClass 0x0010 = Indication
+decodeClass x = decodeClass (x .&. 0x0110)
+
+encodeClass :: Class -> Word16
+encodeClass Request    = 0x0000
+encodeClass Response   = 0x0100
+encodeClass Error      = 0x0110
+encodeClass Indication = 0x0010
 
 toStunType :: Word16 -> STUNType
-toStunType 0x0001 = BindingRequest
-toStunType 0x0101 = BindingResponse
-toStunType 0x0003 = AllocateRequest
-toStunType 0x0103 = AllocateResponse
-toStunType 0x0113 = AllocateError
-toStunType x      = UnknownStunMessage x
+toStunType w = let methodBits = w .&. 0x3eef
+                   classBits  = w .&. 0x0110
+               in STUNType (decodeMethod methodBits) (decodeClass classBits)
 
 fromStunType :: STUNType -> Word16
-fromStunType BindingRequest         = 0x0001
-fromStunType BindingResponse        = 0x0101
-fromStunType AllocateRequest        = 0x0003
-fromStunType AllocateResponse       = 0x0103
-fromStunType AllocateError          = 0x0113
-fromStunType (UnknownStunMessage x) = x
+fromStunType (STUNType method cls) = (encodeMethod method) .|. (encodeClass cls)
 
 
 
@@ -387,7 +416,7 @@ getSTUNAttribute transId = do
                                    skip 2
                                    return cn
     0x0012 -> getXORPeerAddress transId
-    0x0013 -> Data <$> getByteString len
+    0x0013 -> DataValue <$> getByteString len
     0x0017 -> RequestedAddressFamily <$> getAddressFamily
     0x0018 -> EvenPort <$> (\b -> (b .&. 0x80) /= 0) <$> getWord8
     0x001a -> pure DontFragment
@@ -539,7 +568,7 @@ putSTUNAttribute (XORPeerAddressIPv4 addr port) =
 putSTUNAttribute (XORPeerAddressIPv6 addr port transId) =
   attrTLV 0x0012 $ putXORAddress6 addr port transId
 
-putSTUNAttribute (Data bs) =
+putSTUNAttribute (DataValue bs) =
   attrTLV 0x0013 $ putByteString bs
 
 putSTUNAttribute (RequestedAddressFamily af) =

@@ -19,6 +19,8 @@ module Network.STUN
     -- * Types
     STUNMessage(..)
   , STUNType(..)
+  , Method(..)
+  , Class(..)
   , STUNAttributes
   , STUNAttribute(..)
   , TransactionID
@@ -84,7 +86,7 @@ sendBindingRequest sock attrs = do
   transId <- genTransactionId
   let
     attrs'   = software : attrs
-    stunMsg  = STUNMessage BindingRequest transId attrs'
+    stunMsg  = STUNMessage (STUNType Binding Request) transId attrs'
     datagram = produceSTUNMessage stunMsg
   _ <- Socket.send sock datagram
   return transId
@@ -96,7 +98,7 @@ recvBindingResponse sock transId = do
   packet <- Socket.recv sock 65536
   let response = parseSTUNMessage packet
   case response of
-    Right result@(STUNMessage BindingResponse transId' _) ->
+    Right result@(STUNMessage (STUNType Binding Response) transId' _) ->
       if transId == transId'
       then return result
       else recvBindingResponse sock transId
@@ -111,7 +113,7 @@ recvBinding :: Socket.Socket -> IO ()
 recvBinding sock = do
   (request, from) <- recvBindingRequest sock
   case request of
-    STUNMessage BindingRequest transId _ ->
+    STUNMessage (STUNType Binding Request) transId _ ->
       sendBindingResponse sock from transId
     _ -> recvBinding sock
 
@@ -122,7 +124,7 @@ recvBindingRequest sock = do
   putStrLn $ "Request from " ++ show from
   let request = parseSTUNMessage packet
   case request of
-    Right result@(STUNMessage BindingRequest _ _) ->
+    Right result@(STUNMessage (STUNType Binding Request) _ _) ->
       return (result, from)
     _ -> recvBindingRequest sock
 
@@ -135,7 +137,7 @@ sendBindingResponse sock from transId = do
   where
     mappedAddr = addrToXorMappedAddress from transId
     attrs = [software, mappedAddr, Fingerprint Nothing]
-    response = STUNMessage BindingResponse transId attrs
+    response = STUNMessage (STUNType Binding Response) transId attrs
 
 
 addrToXorAddress :: (Socket.HostAddress -> Word16 -> STUNAttribute)
