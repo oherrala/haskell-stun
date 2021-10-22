@@ -1,3 +1,1 @@
-resolver: lts-7.16
-extra-deps:
-  - smallcheck-series-0.6
+resolver: lts-14.8

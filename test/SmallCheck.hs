@@ -14,9 +14,24 @@ instance Monad m => Serial m STUNMessage where
   series = localDepth (const 3) $ cons3 STUNMessage
 
 instance Monad m => Serial m STUNType where
-  series = cons0 BindingRequest \/ cons0 BindingResponse
-           \/ cons0 AllocateRequest \/ cons0 AllocateResponse
-           \/ cons0 AllocateError
+  series = cons2 STUNType
+
+instance Monad m => Serial m Method where
+  series = cons0 Binding
+           \/ cons0 Allocate
+           \/ cons0 Refresh
+           \/ cons0 Send
+           \/ cons0 Data
+           \/ cons0 CreatePermission
+           \/ cons0 ChannelBind
+           \/ cons1 UnknownMethod
+
+instance Monad m => Serial m Class where
+  series = cons0 Request
+           \/ cons0 Response
+           \/ cons0 Error
+           \/ cons0 Indication
+
 
 instance Monad m => Serial m STUNAttribute where
   series = cons2 MappedAddressIPv4
