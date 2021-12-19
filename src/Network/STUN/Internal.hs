@@ -195,7 +195,7 @@ parseSTUNMessage bytes = do
   msg@(STUNMessage _ _ attrs) <- runGet getSTUNMessage bytes
   when (hasFingerprint attrs) (
     unless (verifyFingerprint msg bytes) $
-      fail "STUN Message fingerprint verification failed"
+      Left "STUN Message fingerprint verification failed"
     )
   return msg
 
@@ -592,7 +592,7 @@ putSTUNAttribute (AddressErrorCode af cls num txt) =
 putSTUNAttribute (Icmp typ cod dat) =
   attrTLV 0x8004 $ putIcmp typ cod dat
   
-putSTUNAttribute attr = fail $ "Unknown STUN Attribute: " ++ show attr
+putSTUNAttribute attr = error $ "Unknown STUN Attribute: " ++ show attr
 
 
 -- | Get STUN MAPPED-ADDRESS
