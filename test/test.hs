@@ -43,7 +43,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         key = shortTermKey "VOkJxbRl1RmTxUk/WvJxBt"
         software = "STUN test client"
     in sequence_
-       [ stunType @=? BindingRequest
+       [ stunType @=? (STUNType Binding Request)
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software software) attrs
        , assertBool "Username attribute" $ elem (Username username) attrs
@@ -61,7 +61,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         ipAddr = Socket.tupleToHostAddress (192,0,2,1)
         port = 32853
     in sequence_
-       [ stunType @=? BindingResponse
+       [ stunType @=? (STUNType Binding Response)
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software software) attrs
        , assertBool "Mapped-Address attribute" $
@@ -81,7 +81,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
                  (0x2001,0xdb8,0x1234,0x5678,0x11,0x2233,0x4455,0x6677)
         port = 32853
     in sequence_
-       [ stunType @=? BindingResponse
+       [ stunType @=? (STUNType Binding Response)
        , transID @=? (0xb7e7a701, 0xbc34d686, 0xfa87dfae)
        , assertBool "Software attribute" $ elem (Software software) attrs
        , assertBool "Mapped-Address attribute" $
@@ -101,7 +101,7 @@ rfc5769Tests = testGroup "RFC5769 Test Vectors"
         nonce = "f//499k954d6OL34oL9FSTvy64sA"
         key = longTermKey realm username password
     in sequence_
-       [ stunType @=? BindingRequest
+       [ stunType @=? (STUNType Binding Request)
        , transID @=? (0x78ad3433, 0xc6ad72c0, 0x29da412e)
        , assertBool "Realm attribute" $ elem (Realm realm) attrs
        , assertBool "Nonce attribute" $ elem (Nonce nonce) attrs
@@ -118,7 +118,7 @@ samplePacketTests = testGroup "Sample Packets"
         Right msg = parseSTUNMessage bytes
         STUNMessage stunType transID attrs = msg
     in sequence_
-       [ stunType @=? AllocateRequest
+       [ stunType @=? (STUNType Allocate Request)
        , transID @=? (0xce2f7065, 0x5f265751, 0x9c40fa8f)
        , assertBool "Lifetime attribute" $ elem (Lifetime 3600) attrs
        , assertBool "Fingerprint attribute" $ verifyFingerprint msg bytes
@@ -136,7 +136,7 @@ samplePacketTests = testGroup "Sample Packets"
         nonce = "This is fine nonce-nse"
         key = longTermKey realm username password
     in sequence_
-       [ stunType @=? AllocateRequest
+       [ stunType @=? (STUNType Allocate Request)
        , transID @=? (0x91191b8c, 0x0aca8aac, 0xe7660f12)
        , assertBool "Username attribute" $ elem (Username username) attrs
        , assertBool "Realm attribute" $ elem (Realm realm) attrs
@@ -231,7 +231,7 @@ miscTests = testGroup "Misc Tests"
 
   , testCase "Messate-Integrity with Short-Term Authentication" $
     let key = shortTermKey "swordfish"
-        msg = STUNMessage BindingRequest (12, 654, 2) [MessageIntegrity (Key key)]
+        msg = STUNMessage (STUNType Binding Request) (12, 654, 2) [MessageIntegrity (Key key)]
         bytes = produceSTUNMessage msg
         (Right parsed) = parseSTUNMessage bytes
     in assertBool "" $ verifyMessageIntegrity parsed bytes key
@@ -246,7 +246,7 @@ miscTests = testGroup "Misc Tests"
                 , Username user
                 , Nonce nonce
                 , MessageIntegrity (Key key) ]
-        msg = STUNMessage BindingRequest (12, 654, 2) attrs
+        msg = STUNMessage (STUNType Binding Request) (12, 654, 2) attrs
         bytes = produceSTUNMessage msg
         (Right parsed) = parseSTUNMessage bytes
     in assertBool "" $ verifyMessageIntegrity parsed bytes key
@@ -260,7 +260,7 @@ miscTests = testGroup "Misc Tests"
         attrs = [ Realm realm
                 , Nonce nonce
                 , MessageIntegrity (Key key) ]
-        msg = STUNMessage BindingRequest (1, 33, 7) attrs
+        msg = STUNMessage (STUNType Binding Request) (1, 33, 7) attrs
         bytes = produceSTUNMessage msg
         (Right parsed) = parseSTUNMessage bytes
     in assertBool "" $ verifyMessageIntegrity parsed bytes key

@@ -1,5 +1,5 @@
 name:                stun
-version:             0.1.0.0
+version:             0.2.0.0
 synopsis:            Session Traversal Utilities for NAT (STUN) protocol
 description:         Please see README.md
 homepage:            https://github.com/oherrala/haskell-stun#readme
